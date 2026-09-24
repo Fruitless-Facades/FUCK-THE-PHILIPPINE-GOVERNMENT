@@ -32,7 +32,6 @@ let presenceId = clientId;
 let authMode = 'login';
 let visibilityPauseTimer = null;
 let presenceRefreshTimer = null;
-let onlineRenderTimer = null;
 let presenceConnectionRef = null;
 let presenceConnectionHandler = null;
 let presenceRef = null;
@@ -249,12 +248,12 @@ function showProfileError(msg) {
 
 function friendlyStorageError(code) {
   const map = {
-    'storage/unauthorized': 'Not allowed to upload — check Firebase Storage rules.',
+    'storage/unauthorized': 'Not allowed to upload — check the Cloudflare Worker.',
     'storage/canceled': 'Upload canceled.',
-    'storage/quota-exceeded': 'Storage quota exceeded.',
-    'storage/unknown': 'Upload failed. Try a different image.'
+    'storage/quota-exceeded': 'Upload storage quota exceeded.',
+    'storage/unknown': 'Cloudflare upload failed. Try a different image.'
   };
-  return map[code] || 'Could not upload photo. Try again.';
+  return map[code] || 'Could not upload photo to Cloudflare. Try again.';
 }
 
 function resizeImageToBlob(file, size) {
@@ -415,7 +414,7 @@ function renderAttachment(m) {
   if (!m.fileUrl) return '';
   const type = m.fileType || '';
   const safeUrl = escapeHtml(m.fileUrl);
-  if (type.startsWith('image/')) return `<div class="attachment"><img src="${safeUrl}" alt="attachment"></div>`;
+  if (type.startsWith('image/')) return `<div class="attachment"><img src="${safeUrl}" alt="attachment" loading="lazy" decoding="async"></div>`;
   if (type.startsWith('video/')) return `<div class="attachment"><video src="${safeUrl}" controls preload="metadata"></video></div>`;
   return `<div class="attachment"><a href="${safeUrl}" target="_blank" rel="noopener">📎 ${escapeHtml(m.fileName || 'Download file')}</a></div>`;
 }
@@ -450,7 +449,15 @@ function renderMessages(docs, keepPosition = false) {
       </div>
     </div>
   `).join('');
-  if (!keepPosition || wasAtBottom) el.scrollTop = el.scrollHeight;
+  const followBottom = !keepPosition || wasAtBottom;
+  if (followBottom) el.scrollTop = el.scrollHeight;
+  if (followBottom) {
+    el.querySelectorAll('img, video').forEach(media => {
+      const keepBottom = () => { el.scrollTop = el.scrollHeight; };
+      media.addEventListener('load', keepBottom, { once: true });
+      media.addEventListener('loadedmetadata', keepBottom, { once: true });
+    });
+  }
 }
 
 function subscribeChannel(ch) {
@@ -535,6 +542,13 @@ document.getElementById('mobile-online-back').onclick = () => {
   document.getElementById('online').classList.remove('mobile-open');
   document.getElementById('mobile-online-toggle').setAttribute('aria-expanded', 'false');
 };
+
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 640) {
+    document.getElementById('online').classList.remove('mobile-open');
+    document.getElementById('channels').classList.remove('mobile-open');
+  }
+});
 
 async function sendMessage() {
   const input = document.getElementById('msg-input');
@@ -867,9 +881,7 @@ function pushPresence() {
 
 function stopPresence() {
   if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
-  if (onlineRenderTimer) clearInterval(onlineRenderTimer);
   presenceRefreshTimer = null;
-  onlineRenderTimer = null;
   if (presenceConnectionRef && presenceConnectionHandler) {
     presenceConnectionRef.off('value', presenceConnectionHandler);
   }
@@ -911,7 +923,6 @@ function startPresence() {
   };
   presenceRef.on('value', unsubPresence);
 
-  onlineRenderTimer = setInterval(renderOnline, 5000);
 }
 
 function enableChat() {

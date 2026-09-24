@@ -515,6 +515,30 @@ body {
   margin: 0 0 10px;
 }
 
+@media (min-width: 641px) {
+  #online {
+    display: block;
+    position: static;
+    transform: none;
+    visibility: visible;
+    width: 220px;
+    height: auto;
+    padding: 16px 12px;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--bg-dark);
+  }
+
+  #online-mobile-header {
+    display: block;
+  }
+
+  #mobile-online-back {
+    display: none;
+  }
+}
+
 .peer {
   display: flex;
   align-items: center;
