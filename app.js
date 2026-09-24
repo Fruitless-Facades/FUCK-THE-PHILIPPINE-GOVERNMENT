@@ -488,18 +488,28 @@ messageList.addEventListener('scroll', () => {
 
 document.querySelectorAll('.channel').forEach(el => {
   el.onclick = () => {
+    document.getElementById('channels').classList.remove('mobile-open');
+    if (currentChannel === el.dataset.ch) return;
     document.querySelectorAll('.channel').forEach(c => c.classList.remove('active'));
     el.classList.add('active');
     currentChannel = el.dataset.ch;
     document.getElementById('header-channel').textContent = '# ' + currentChannel;
     document.getElementById('msg-input').placeholder = 'Message #' + currentChannel;
-    document.getElementById('channels').classList.remove('mobile-open');
     subscribeChannel(currentChannel);
   };
 });
 
 document.getElementById('mobile-channel-toggle').onclick = () => {
   document.getElementById('channels').classList.toggle('mobile-open');
+  document.getElementById('online').classList.remove('mobile-open');
+  document.getElementById('mobile-online-toggle').setAttribute('aria-expanded', 'false');
+};
+
+document.getElementById('mobile-online-toggle').onclick = () => {
+  const online = document.getElementById('online');
+  const isOpen = online.classList.toggle('mobile-open');
+  document.getElementById('channels').classList.remove('mobile-open');
+  document.getElementById('mobile-online-toggle').setAttribute('aria-expanded', String(isOpen));
 };
 
 async function sendMessage() {
@@ -786,6 +796,7 @@ function init() {
   }
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.firestore();
+  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
   auth = firebase.auth();
   try { storage = firebase.storage(); } catch (e) { storage = null; }
   try { rtdb = firebase.database(); } catch (e) { rtdb = null; }
