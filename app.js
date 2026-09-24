@@ -16,6 +16,7 @@ let db = null, auth = null, storage = null, rtdb = null;
 let nickname = '';
 let pendingAvatarBlob = null;
 let pendingAvatarRemoved = false;
+let pendingAvatarPreviewUrl = null;
 let clientId = localStorage.getItem('hangout_client_id');
 
 if (!clientId) {
@@ -30,6 +31,11 @@ let latestPeers = [];
 let presenceId = clientId;
 let authMode = 'login';
 let visibilityPauseTimer = null;
+let presenceRefreshTimer = null;
+let onlineRenderTimer = null;
+let presenceConnectionRef = null;
+let presenceConnectionHandler = null;
+let presenceRef = null;
 
 const COLORS = ['#d95763', '#d99a3d', '#2f9e8f', '#c66b9b', '#6f8fc7', '#8b7bb8'];
 const STATUS_META = {
@@ -282,9 +288,15 @@ async function uploadAvatar(blob) {
   return await ref.getDownloadURL();
 }
 
+function revokeAvatarPreviewUrl() {
+  if (pendingAvatarPreviewUrl) URL.revokeObjectURL(pendingAvatarPreviewUrl);
+  pendingAvatarPreviewUrl = null;
+}
+
 function resetAvatarPreview() {
   pendingAvatarBlob = null;
   pendingAvatarRemoved = false;
+  revokeAvatarPreviewUrl();
   document.getElementById('avatar-file-input').value = '';
   const el = document.getElementById('avatar-preview');
   if (myProfile.avatarUrl) {
@@ -306,12 +318,13 @@ document.getElementById('avatar-file-input').addEventListener('change', async e 
   document.getElementById('profile-error').style.display = 'none';
   try {
     const blob = await resizeImageToBlob(file, 128);
+    revokeAvatarPreviewUrl();
     pendingAvatarBlob = blob;
     pendingAvatarRemoved = false;
-    const previewUrl = URL.createObjectURL(blob);
+    pendingAvatarPreviewUrl = URL.createObjectURL(blob);
     const el = document.getElementById('avatar-preview');
     el.style.background = 'transparent';
-    el.innerHTML = `<img src="${previewUrl}" alt="">`;
+    el.innerHTML = `<img src="${pendingAvatarPreviewUrl}" alt="">`;
   } catch (err) {
     showProfileError(err.message || 'Could not process that image.');
   }
@@ -320,6 +333,7 @@ document.getElementById('avatar-file-input').addEventListener('change', async e 
 document.getElementById('avatar-remove-btn').onclick = () => {
   pendingAvatarBlob = null;
   pendingAvatarRemoved = true;
+  revokeAvatarPreviewUrl();
   document.getElementById('avatar-file-input').value = '';
   const el = document.getElementById('avatar-preview');
   el.style.background = myProfile.color || colorFor(nickname || '?');
@@ -350,6 +364,9 @@ function openProfileModal() {
 }
 
 function closeProfileModal() {
+  pendingAvatarBlob = null;
+  pendingAvatarRemoved = false;
+  revokeAvatarPreviewUrl();
   profileModal.style.display = 'none';
 }
 
@@ -512,6 +529,11 @@ document.getElementById('mobile-online-toggle').onclick = () => {
   document.getElementById('mobile-online-toggle').setAttribute('aria-expanded', String(isOpen));
 };
 
+document.getElementById('mobile-online-back').onclick = () => {
+  document.getElementById('online').classList.remove('mobile-open');
+  document.getElementById('mobile-online-toggle').setAttribute('aria-expanded', 'false');
+};
+
 async function sendMessage() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
@@ -542,6 +564,121 @@ function showUploadStatus(msg) {
 }
 function hideUploadStatus() {
   document.getElementById('upload-status').style.display = 'none';
+}
+
+function compressedFileName(name, extension) {
+  return name.replace(/\.[^.]+$/, '') + extension;
+}
+
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const sourceUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const maxDimension = 1600;
+      const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(sourceUrl);
+        if (!blob) {
+          reject(new Error('Could not compress image'));
+          return;
+        }
+        const compressed = new File([blob], compressedFileName(file.name, '.jpg'), { type: 'image/jpeg' });
+        resolve(compressed.size < file.size ? compressed : file);
+      }, 'image/jpeg', 0.8);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(sourceUrl);
+      reject(new Error('Could not read image'));
+    };
+    image.src = sourceUrl;
+  });
+}
+
+function compressVideo(file) {
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return Promise.resolve(file);
+  const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    .find(type => MediaRecorder.isTypeSupported(type));
+  if (!mimeType) return Promise.resolve(file);
+
+  return new Promise((resolve, reject) => {
+    const sourceUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.src = sourceUrl;
+    let animationFrame = null;
+    let outputStream = null;
+    let sourceStream = null;
+    let recorder = null;
+    const chunks = [];
+
+    const cleanup = () => {
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+      if (outputStream) outputStream.getTracks().forEach(track => track.stop());
+      if (sourceStream) sourceStream.getTracks().forEach(track => track.stop());
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(sourceUrl);
+    };
+
+    video.onerror = () => {
+      cleanup();
+      reject(new Error('Could not read video'));
+    };
+    video.onloadedmetadata = async () => {
+      try {
+        const maxDimension = 1280;
+        const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
+        const context = canvas.getContext('2d');
+        outputStream = canvas.captureStream(30);
+        if (video.captureStream) {
+          sourceStream = video.captureStream();
+          sourceStream.getAudioTracks().forEach(track => outputStream.addTrack(track));
+        }
+        recorder = new MediaRecorder(outputStream, { mimeType, videoBitsPerSecond: 2_500_000 });
+        recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+        recorder.onerror = () => { cleanup(); reject(new Error('Could not compress video')); };
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: mimeType });
+          cleanup();
+          const compressed = new File([blob], compressedFileName(file.name, '.webm'), { type: mimeType });
+          resolve(compressed.size < file.size ? compressed : file);
+        };
+        video.onended = () => {
+          if (recorder.state !== 'inactive') recorder.stop();
+        };
+        const drawFrame = () => {
+          if (recorder.state === 'recording') {
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            animationFrame = requestAnimationFrame(drawFrame);
+          }
+        };
+        recorder.start(1000);
+        await video.play();
+        drawFrame();
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+  });
+}
+
+async function compressMediaFile(file) {
+  if (file.type.startsWith('image/')) return compressImage(file);
+  if (file.type.startsWith('video/')) return compressVideo(file);
+  return file;
 }
 
 function uploadFile(file) {
@@ -599,13 +736,19 @@ document.getElementById('file-input').addEventListener('change', async e => {
     return;
   }
   if (file.size > MAX_FILE_BYTES) {
-    showUploadStatus('That file is too big — 95MB max for now.');
+    showUploadStatus('That file is too big — 50MB max for now.');
     return;
   }
   document.getElementById('attach-btn').disabled = true;
-  showUploadStatus('Uploading ' + file.name + '…');
+  showUploadStatus('Compressing ' + file.name + '…');
   try {
-    const result = await uploadFile(file);
+    const compressedFile = await compressMediaFile(file);
+    if (compressedFile.size > MAX_FILE_BYTES) {
+      showUploadStatus('The compressed file is still too big — 50MB max for now.');
+      return;
+    }
+    showUploadStatus('Uploading ' + compressedFile.name + '…');
+    const result = await uploadFile(compressedFile);
     await db.collection('hangout_messages').add({
       channel: currentChannel,
       author: nickname,
@@ -719,8 +862,24 @@ function pushPresence() {
   }).catch(() => {});
 }
 
+function stopPresence() {
+  if (presenceRefreshTimer) clearInterval(presenceRefreshTimer);
+  if (onlineRenderTimer) clearInterval(onlineRenderTimer);
+  presenceRefreshTimer = null;
+  onlineRenderTimer = null;
+  if (presenceConnectionRef && presenceConnectionHandler) {
+    presenceConnectionRef.off('value', presenceConnectionHandler);
+  }
+  if (presenceRef && unsubPresence) presenceRef.off('value', unsubPresence);
+  presenceConnectionRef = null;
+  presenceConnectionHandler = null;
+  presenceRef = null;
+  unsubPresence = null;
+}
+
 function startPresence() {
   if (!rtdb || !nickname) return;
+  stopPresence();
   presenceId = auth.currentUser?.uid || clientId;
 
   const myRef = rtdb.ref('presence/' + presenceId);
@@ -729,25 +888,27 @@ function startPresence() {
   // reconnect, so this also covers brief network blips, not just tab close.
   // We mark ourselves offline (keeping the record) rather than removing it,
   // so friends still show up in the "Offline" list instead of vanishing.
-  rtdb.ref('.info/connected').on('value', snap => {
+  presenceConnectionRef = rtdb.ref('.info/connected');
+  presenceConnectionHandler = snap => {
     if (snap.val() !== true) return;
     myRef.onDisconnect().update({
       online: false,
       ts: firebase.database.ServerValue.TIMESTAMP
     }).then(() => pushPresence());
-  });
+  };
+  presenceConnectionRef.on('value', presenceConnectionHandler);
 
-  setInterval(pushPresence, 25000);
+  presenceRefreshTimer = setInterval(pushPresence, 25000);
 
-  if (unsubPresence) rtdb.ref('presence').off('value', unsubPresence);
+  presenceRef = rtdb.ref('presence');
   unsubPresence = snap => {
     const val = snap.val() || {};
     latestPeers = Object.entries(val).map(([id, data]) => ({ id, ...data }));
     renderOnline();
   };
-  rtdb.ref('presence').on('value', unsubPresence);
+  presenceRef.on('value', unsubPresence);
 
-  setInterval(renderOnline, 5000);
+  onlineRenderTimer = setInterval(renderOnline, 5000);
 }
 
 function enableChat() {
@@ -760,11 +921,14 @@ function enableChat() {
 
 function disableChat() {
   chatActive = false;
+  clearTimeout(visibilityPauseTimer);
+  visibilityPauseTimer = null;
   document.getElementById('msg-input').disabled = true;
   document.getElementById('send-btn').disabled = true;
   document.getElementById('attach-btn').disabled = true;
   if (unsubMessages) unsubMessages();
-  if (unsubPresence && rtdb) { rtdb.ref('presence').off('value', unsubPresence); unsubPresence = null; }
+  unsubMessages = null;
+  stopPresence();
 }
 
 // Keep short app switches from rereading the newest page. Long-idle tabs still
@@ -782,6 +946,23 @@ document.addEventListener('visibilitychange', () => {
   } else {
     clearTimeout(visibilityPauseTimer);
     if (!unsubMessages) subscribeChannel(currentChannel);
+  }
+});
+
+window.addEventListener('pagehide', () => {
+  clearTimeout(visibilityPauseTimer);
+  visibilityPauseTimer = null;
+  if (unsubMessages) {
+    unsubMessages();
+    unsubMessages = null;
+  }
+  stopPresence();
+});
+
+window.addEventListener('pageshow', event => {
+  if (event.persisted && chatActive && !unsubMessages) {
+    subscribeChannel(currentChannel);
+    startPresence();
   }
 });
 
