@@ -76,7 +76,10 @@
     <div id="header"># general</div>
     <div id="messages"><div id="empty">Loading...</div></div>
     <div id="input-area">
+      <div id="upload-status" style="display:none;"></div>
       <div id="input-row">
+        <button id="attach-btn" type="button" title="Attach a file" disabled>📎</button>
+        <input type="file" id="file-input" style="display:none;">
         <input id="msg-input" placeholder="Message #general" disabled>
         <button id="send-btn" disabled>Send</button>
         <div id="mention-menu"></div>
@@ -93,6 +96,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
   <!-- Updated script tag to load app.js -->
   <script src="./app.js"></script>
 </body>

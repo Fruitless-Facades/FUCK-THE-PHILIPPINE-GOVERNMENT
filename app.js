@@ -1,13 +1,18 @@
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyBuCWVloW2QxsX40IfUIReBg7HWZCzty_I",
   authDomain: "rod-of-discord.firebaseapp.com",
+  databaseURL: "https://rod-of-discord-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "rod-of-discord",
   storageBucket: "rod-of-discord.firebasestorage.app",
   messagingSenderId: "881588222910",
   appId: "1:881588222910:web:96d0bf399f2ef8133817ef"
 };
 
-let db = null, auth = null, storage = null;
+// Paste your deployed Cloudflare Worker URL here, e.g. "https://hangout-upload.yourname.workers.dev"
+const UPLOAD_WORKER_URL = "https://fruitless-upload.ericjudo2.workers.dev";
+const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50MB cap
+
+let db = null, auth = null, storage = null, rtdb = null;
 let nickname = '';
 let pendingAvatarBlob = null;
 let pendingAvatarRemoved = false;
@@ -20,6 +25,7 @@ if (!clientId) {
 
 let currentChannel = 'general';
 let unsubMessages = null, unsubPresence = null;
+let chatActive = false;
 let latestPeers = [];
 let presenceId = clientId;
 let authMode = 'login';
@@ -385,6 +391,15 @@ document.getElementById('profile-save').onclick = async () => {
   }
 };
 
+function renderAttachment(m) {
+  if (!m.fileUrl) return '';
+  const type = m.fileType || '';
+  const safeUrl = escapeHtml(m.fileUrl);
+  if (type.startsWith('image/')) return `<div class="attachment"><img src="${safeUrl}" alt="attachment"></div>`;
+  if (type.startsWith('video/')) return `<div class="attachment"><video src="${safeUrl}" controls preload="metadata"></video></div>`;
+  return `<div class="attachment"><a href="${safeUrl}" target="_blank" rel="noopener">📎 ${escapeHtml(m.fileName || 'Download file')}</a></div>`;
+}
+
 // ---------- Chat ----------
 function renderMessages(docs) {
   const el = document.getElementById('messages');
@@ -397,7 +412,8 @@ function renderMessages(docs) {
       <div class="avatar" style="${m.avatarUrl ? '' : 'background:' + (m.color || colorFor(m.author || '?'))}">${m.avatarUrl ? '<img src="' + escapeHtml(m.avatarUrl) + '" alt="">' : initials(m.author)}</div>
       <div class="msg-body">
         <div class="top"><span class="author">${escapeHtml(m.author || 'Someone')}</span><span class="time">${fmtTime(m.ts)}</span></div>
-        <div class="text">${formatMessage(m.text || '')}</div>
+        ${m.text ? `<div class="text">${formatMessage(m.text)}</div>` : ''}
+        ${renderAttachment(m)}
       </div>
     </div>
   `).join('');
@@ -409,7 +425,7 @@ function subscribeChannel(ch) {
   if (unsubMessages) unsubMessages();
   document.getElementById('messages').innerHTML = '<div id="empty">Loading...</div>';
   unsubMessages = db.collection('hangout_messages')
-    .where('channel', '==', ch).orderBy('ts').limitToLast(200)
+    .where('channel', '==', ch).orderBy('ts').limitToLast(20)
     .onSnapshot(snap => renderMessages(snap.docs.map(d => d.data())),
       err => { document.getElementById('messages').innerHTML = '<div id="empty">Could not load messages: ' + escapeHtml(err.message || err.code || 'unknown error') + '</div>'; });
 }
@@ -447,6 +463,77 @@ async function sendMessage() {
 document.getElementById('send-btn').onclick = sendMessage;
 const messageInput = document.getElementById('msg-input');
 
+// ---------- File uploads (Cloudflare Worker + R2) ----------
+function showUploadStatus(msg) {
+  const el = document.getElementById('upload-status');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideUploadStatus() {
+  document.getElementById('upload-status').style.display = 'none';
+}
+
+function uploadFile(file) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', UPLOAD_WORKER_URL + '/upload');
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        showUploadStatus('Uploading ' + file.name + '… ' + Math.round((e.loaded / e.total) * 100) + '%');
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)); }
+        catch (e) { reject(new Error('Bad response from upload server')); }
+      } else {
+        reject(new Error('Upload failed (status ' + xhr.status + ')'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(file);
+  });
+}
+
+document.getElementById('attach-btn').onclick = () => document.getElementById('file-input').click();
+
+document.getElementById('file-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !db) return;
+  if (!UPLOAD_WORKER_URL || UPLOAD_WORKER_URL === 'PASTE_WORKER_URL') {
+    showUploadStatus("File uploads aren't configured yet — add your Worker URL to app.js.");
+    return;
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    showUploadStatus('That file is too big — 95MB max for now.');
+    return;
+  }
+  document.getElementById('attach-btn').disabled = true;
+  showUploadStatus('Uploading ' + file.name + '…');
+  try {
+    const result = await uploadFile(file);
+    await db.collection('hangout_messages').add({
+      channel: currentChannel,
+      author: nickname,
+      text: '',
+      color: myProfile.color || null,
+      avatarUrl: myProfile.avatarUrl || null,
+      fileUrl: result.url,
+      fileName: result.name,
+      fileType: result.type,
+      ts: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    hideUploadStatus();
+  } catch (err) {
+    showUploadStatus('Upload failed: ' + (err.message || 'unknown error'));
+  } finally {
+    document.getElementById('attach-btn').disabled = false;
+  }
+});
+
 messageInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') sendMessage();
   if (e.key === 'Escape') document.getElementById('mention-menu').classList.remove('open');
@@ -463,9 +550,8 @@ function renderMentionMenu() {
   }
   const query = match[1].toLowerCase();
   const members = uniquePeers(latestPeers).filter(p => p.name && p.name.trim().toLowerCase() !== nickname.trim().toLowerCase() && p.name.toLowerCase().includes(query));
-  const cutoff = Date.now() - 20000;
   menu.innerHTML = members.map(p => {
-    const isOffline = p.ts <= cutoff || p.status === 'invisible';
+    const isOffline = p.online === false || p.status === 'invisible';
     const dotColor = isOffline ? STATUS_META.invisible.color : statusColor(p.status || 'online');
     const avatarInner = p.avatarUrl ? '<img src="' + escapeHtml(p.avatarUrl) + '" alt="">' : escapeHtml(initials(p.name));
     const avatarBg = p.avatarUrl ? '' : `background:${peerColor(p)}`;
@@ -517,10 +603,9 @@ function peerRow(p, offline) {
 }
 
 function renderOnline() {
-  const cutoff = Date.now() - 20000;
   const peers = uniquePeers(latestPeers);
-  const active = peers.filter(p => p.ts > cutoff && p.status !== 'invisible');
-  const offline = peers.filter(p => !(p.ts > cutoff) || p.status === 'invisible');
+  const active = peers.filter(p => p.online !== false && p.status !== 'invisible');
+  const offline = peers.filter(p => p.online === false || p.status === 'invisible');
   document.getElementById('online-count').textContent = active.length;
   document.getElementById('online-list').innerHTML =
     active.map(p => peerRow(p, false)).join('') +
@@ -530,42 +615,76 @@ function renderOnline() {
 }
 
 function pushPresence() {
-  if (!db || !nickname) return;
-  const ref = db.collection('hangout_presence').doc(presenceId);
-  ref.set({
+  if (!rtdb || !nickname || !presenceId) return;
+  rtdb.ref('presence/' + presenceId).set({
     name: nickname,
-    ts: Date.now(),
+    online: true,
+    ts: firebase.database.ServerValue.TIMESTAMP,
     status: myProfile.status,
     statusText: myProfile.statusText || '',
-    color: myProfile.color || null
+    color: myProfile.color || null,
+    avatarUrl: myProfile.avatarUrl || null
   }).catch(() => {});
 }
 
 function startPresence() {
-  if (!db || !nickname) return;
+  if (!rtdb || !nickname) return;
   presenceId = auth.currentUser?.uid || clientId;
-  pushPresence();
-  setInterval(pushPresence, 8000);
-  if (unsubPresence) unsubPresence();
-  unsubPresence = db.collection('hangout_presence').onSnapshot(snap => {
-    latestPeers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderOnline();
+
+  const myRef = rtdb.ref('presence/' + presenceId);
+
+  // Re-register the disconnect hook on every (re)connect — RTDB drops it on
+  // reconnect, so this also covers brief network blips, not just tab close.
+  // We mark ourselves offline (keeping the record) rather than removing it,
+  // so friends still show up in the "Offline" list instead of vanishing.
+  rtdb.ref('.info/connected').on('value', snap => {
+    if (snap.val() !== true) return;
+    myRef.onDisconnect().update({
+      online: false,
+      ts: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => pushPresence());
   });
+
+  setInterval(pushPresence, 25000);
+
+  if (unsubPresence) rtdb.ref('presence').off('value', unsubPresence);
+  unsubPresence = snap => {
+    const val = snap.val() || {};
+    latestPeers = Object.entries(val).map(([id, data]) => ({ id, ...data }));
+    renderOnline();
+  };
+  rtdb.ref('presence').on('value', unsubPresence);
+
   setInterval(renderOnline, 5000);
 }
 
 function enableChat() {
+  chatActive = true;
   document.getElementById('msg-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
+  document.getElementById('attach-btn').disabled = false;
   subscribeChannel(currentChannel);
 }
 
 function disableChat() {
+  chatActive = false;
   document.getElementById('msg-input').disabled = true;
   document.getElementById('send-btn').disabled = true;
+  document.getElementById('attach-btn').disabled = true;
   if (unsubMessages) unsubMessages();
-  if (unsubPresence) unsubPresence();
+  if (unsubPresence && rtdb) { rtdb.ref('presence').off('value', unsubPresence); unsubPresence = null; }
 }
+
+// Pause the messages listener while the tab is backgrounded so idle open
+// tabs don't keep costing a Firestore read for every message someone else sends.
+document.addEventListener('visibilitychange', () => {
+  if (!chatActive) return;
+  if (document.hidden) {
+    if (unsubMessages) { unsubMessages(); unsubMessages = null; }
+  } else {
+    subscribeChannel(currentChannel);
+  }
+});
 
 function firebaseConfigured() {
   return FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'PASTE_ME';
@@ -580,6 +699,7 @@ function init() {
   db = firebase.firestore();
   auth = firebase.auth();
   try { storage = firebase.storage(); } catch (e) { storage = null; }
+  try { rtdb = firebase.database(); } catch (e) { rtdb = null; }
 
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {
     showAuthError('Firebase is connected, but this browser could not save the login session.');

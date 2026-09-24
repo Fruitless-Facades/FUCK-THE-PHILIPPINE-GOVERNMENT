@@ -378,6 +378,48 @@ body {
   font-size: 15px;
 }
 
+#attach-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 19px;
+  cursor: pointer;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+
+#attach-btn:hover {
+  color: var(--text);
+}
+
+#attach-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+#upload-status {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 4px 6px;
+}
+
+.attachment {
+  margin-top: 4px;
+}
+
+.attachment img, .attachment video {
+  max-width: 320px;
+  max-height: 320px;
+  border-radius: 8px;
+  display: block;
+}
+
+.attachment a {
+  color: #00aff4;
+  font-size: 14px;
+  text-decoration: underline;
+}
+
 #send-btn {
   background: var(--accent);
   color: #fff;
