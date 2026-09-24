@@ -12,7 +12,7 @@ const FIREBASE_CONFIG = {
 const UPLOAD_WORKER_URL = "https://fruitless-upload.ericjudo2.workers.dev";
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50MB cap
 
-let db = null, auth = null, storage = null, rtdb = null;
+let db = null, auth = null, rtdb = null;
 let nickname = '';
 let pendingAvatarBlob = null;
 let pendingAvatarRemoved = false;
@@ -281,11 +281,13 @@ function resizeImageToBlob(file, size) {
 }
 
 async function uploadAvatar(blob) {
-  if (!storage) throw { code: 'storage/unknown', message: 'Storage is not available' };
+  if (!UPLOAD_WORKER_URL || UPLOAD_WORKER_URL === 'PASTE_WORKER_URL') {
+    throw { code: 'storage/unknown', message: 'Upload server is not configured' };
+  }
   const uid = (auth.currentUser && auth.currentUser.uid) || clientId;
-  const ref = storage.ref().child('avatars/' + uid + '.jpg');
-  await ref.put(blob, { contentType: 'image/jpeg' });
-  return await ref.getDownloadURL();
+  const file = new File([blob], 'avatar-' + uid + '.jpg', { type: 'image/jpeg' });
+  const result = await uploadFile(file);
+  return result.url;
 }
 
 function revokeAvatarPreviewUrl() {
@@ -676,6 +678,7 @@ function compressVideo(file) {
 }
 
 async function compressMediaFile(file) {
+  if (file.type === 'image/gif') return file;
   if (file.type.startsWith('image/')) return compressImage(file);
   if (file.type.startsWith('video/')) return compressVideo(file);
   return file;
@@ -979,7 +982,6 @@ function init() {
   db = firebase.firestore();
   db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
   auth = firebase.auth();
-  try { storage = firebase.storage(); } catch (e) { storage = null; }
   try { rtdb = firebase.database(); } catch (e) { rtdb = null; }
 
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {
