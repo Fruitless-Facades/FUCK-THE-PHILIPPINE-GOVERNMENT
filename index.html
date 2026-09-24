@@ -1,697 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hangout</title>
-<style>
-:root{
-  --bg:#313338; --bg-dark:#2b2d31; --bg-darker:#1e1f22; --text:#dbdee1;
-  --muted:#949ba4; --accent:#5865f2; --accent-hover:#4752c4; --border:#26272b;
-  --input-bg:#383a40; --online:#23a559; --idle:#f0b132; --dnd:#f23f42; --invisible:#80848e;
-}
-*{box-sizing:border-box;}
-html,body{height:100%;margin:0;}
-body{
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  background:var(--bg); color:var(--text); display:flex; overflow:hidden;
-  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
-}
-#channels{width:220px; background:var(--bg-darker); flex-shrink:0; display:flex; flex-direction:column; padding:12px 8px;}
-#channels h2{font-size:15px; color:#fff; margin:4px 8px 12px; letter-spacing:.3px;}
-.channel{padding:8px 10px; border-radius:6px; color:var(--muted); cursor:pointer; font-size:15px; margin-bottom:2px; display:flex; align-items:center; gap:6px; user-select:none;}
-.channel:hover{background:#35373c; color:var(--text);}
-.channel.active{background:#404249; color:#fff;}
-#nick-box{margin-top:auto; padding:8px; border-top:1px solid var(--border); display:flex; align-items:center; gap:6px;}
-#profile-trigger{flex:1; min-width:0; display:flex; align-items:center; gap:8px; background:none; border:none; padding:4px; border-radius:6px; cursor:pointer; text-align:left;}
-#profile-trigger:hover{background:#35373c;}
-.avatar-wrap{position:relative; flex-shrink:0; display:inline-flex;}
-.status-dot{position:absolute; right:-2px; bottom:-2px; width:11px; height:11px; border-radius:50%; border:3px solid var(--bg-darker); background:var(--online);}
-.peer .status-dot{border-color:var(--bg-dark);}
-.avatar.mini{width:32px; height:32px; font-size:12px;}
-.profile-trigger-info{min-width:0; display:flex; flex-direction:column; line-height:1.25;}
-#nick-display{color:var(--text); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-#my-status-text{font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px;}
-#logout-btn{background:none; border:none; color:var(--muted); font-size:11px; cursor:pointer; text-decoration:underline; padding:4px; flex-shrink:0;}
-#logout-btn:hover{color:var(--text);}
-#main{flex:1; display:flex; flex-direction:column; min-width:0;}
-#header{height:48px; flex-shrink:0; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 16px; font-weight:600; color:#fff;}
-#messages{flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px;}
-.msg{display:flex; gap:12px;}
-.avatar{width:38px; height:38px; border-radius:50%; background:var(--accent); flex-shrink:0; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600; font-size:14px;}
-.msg-body .top{display:flex; align-items:baseline; gap:8px;}
-.msg-body .author{font-weight:600; color:#fff; font-size:15px;}
-.msg-body .time{font-size:11px; color:var(--muted);}
-.msg-body .text{font-size:15px; line-height:1.4; word-break:break-word;}
-#empty{margin:auto; color:var(--muted); text-align:center; font-size:14px; max-width:360px;}
-#input-area{padding:12px 16px 16px;}
-#input-row{position:relative; background:var(--input-bg); border-radius:8px; display:flex; align-items:center; padding:0 12px;}
-#mention-menu{position:absolute; bottom:42px; left:0; width:290px; max-height:260px; overflow-y:auto; background:var(--bg-darker); border:1px solid var(--border); border-radius:6px; padding:4px; box-shadow:0 8px 20px rgba(0,0,0,.3); display:none; z-index:2;}
-#mention-menu.open{display:block;}
-.mention-option{display:flex; align-items:center; gap:9px; width:100%; text-align:left; background:none; border:none; color:var(--text); padding:7px 8px; border-radius:4px; cursor:pointer; font-size:14px;}
-.mention-option:hover{background:#404249; color:#fff;}
-.mention-option:hover .member-handle{color:#dbdee1;}
-.member-avatar{width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:#fff; font-weight:600; font-size:11px;}
-.member-info{min-width:0; display:flex; flex-direction:column; line-height:1.2;}
-.member-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#f2f3f5;}
-.member-handle{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px;}
-.member-status-text{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px; font-style:italic;}
-.mention-status{width:8px; height:8px; border-radius:50%; background:var(--online); margin-left:auto; flex-shrink:0;}
-.text a{color:#00aff4; text-decoration:underline;}
-.text a:hover{color:#fff;}
-.text .mention{color:#c9cdfb; background:rgba(88,101,242,.25); border-radius:3px; padding:1px 3px;}
-#input-row input{flex:1; background:transparent; border:none; outline:none; color:var(--text); padding:12px 0; font-size:15px;}
-#send-btn{background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:14px; cursor:pointer; font-weight:600;}
-#send-btn:hover{background:var(--accent-hover);}
-#send-btn:disabled{opacity:.5; cursor:not-allowed;}
-#online{width:220px; background:var(--bg-dark); flex-shrink:0; padding:16px 12px; overflow-y:auto;}
-#online h3{font-size:12px; text-transform:uppercase; color:var(--muted); margin:0 0 10px;}
-.peer{display:flex; align-items:center; gap:9px; padding:6px 4px; font-size:14px; min-width:0;}
-.member-group-label{color:var(--muted); font-size:11px; text-transform:uppercase; margin:14px 4px 4px;}
-#auth-modal, #profile-modal{position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; z-index:10; padding:16px;}
-#auth-modal .box, #profile-modal .box{background:var(--bg); border-radius:8px; padding:24px; width:320px; max-width:100%;}
-#auth-modal h2, #profile-modal h2{margin:0 0 4px; color:#fff; font-size:18px;}
-#auth-modal p, #profile-modal p{margin:0 0 16px; color:var(--muted); font-size:13px;}
-#auth-tabs{display:flex; gap:4px; margin-bottom:16px; background:var(--bg-darker); border-radius:6px; padding:3px;}
-#auth-tabs button{flex:1; background:none; border:none; color:var(--muted); padding:7px; border-radius:5px; font-size:13px; cursor:pointer; font-weight:600;}
-#auth-tabs button.active{background:var(--input-bg); color:#fff;}
-#auth-modal input, #profile-modal input{width:100%; padding:10px 12px; border-radius:6px; border:none; background:var(--input-bg); color:var(--text); font-size:14px; outline:none; margin-bottom:10px;}
-#auth-submit{width:100%; padding:10px; background:var(--accent); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; margin-top:4px;}
-#auth-submit:disabled{opacity:.6; cursor:not-allowed;}
-#auth-error{color:#f23f42; font-size:12px; margin:-4px 0 10px; display:none;}
-#setup-banner{background:#f0b132; color:#1e1f22; font-size:13px; padding:10px 16px; display:none; line-height:1.4;}
-.avatar, .member-avatar{position:relative; overflow:hidden;}
-.avatar img, .member-avatar img{width:100%; height:100%; object-fit:cover; border-radius:50%; display:block;}
-#avatar-upload-row{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
-#avatar-preview{width:56px; height:56px; font-size:18px; flex-shrink:0;}
-.upload-btn{background:var(--input-bg); color:var(--text); padding:8px 12px; border-radius:6px; font-size:12px; cursor:pointer; font-weight:600; display:inline-block;}
-.upload-btn:hover{background:#404249;}
-.text-btn{background:none; border:none; color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; padding:4px;}
-.text-btn:hover{color:var(--text);}
-#profile-error{color:#f23f42; font-size:12px; margin:-6px 0 12px; display:none;}
-#status-options{display:flex; flex-direction:column; gap:4px; margin-bottom:12px;}
-.status-option{display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:var(--input-bg); border:2px solid transparent; color:var(--text); padding:8px 10px; border-radius:6px; cursor:pointer; font-size:13px;}
-.status-option:hover{background:#404249;}
-.status-option.active{border-color:var(--accent); background:#404249; color:#fff;}
-.status-option .dot{width:9px; height:9px; border-radius:50%; flex-shrink:0;}
-#color-swatches{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
-.swatch{width:26px; height:26px; border-radius:50%; border:2px solid transparent; cursor:pointer; padding:0;}
-.swatch.active{border-color:#fff;}
-.modal-actions{display:flex; gap:8px;}
-.modal-actions button{flex:1; padding:10px; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px;}
-#profile-save{background:var(--accent); color:#fff;}
-#profile-save:hover{background:var(--accent-hover);}
-#profile-cancel{background:var(--input-bg); color:var(--text);}
-#profile-cancel:hover{background:#404249;}
-::-webkit-scrollbar{width:8px;}
-::-webkit-scrollbar-thumb{background:#1a1b1e; border-radius:4px;}
-@media (max-width:640px){ #online{display:none;} #channels{width:150px;} }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hangout</title>
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 
-<div id="auth-modal">
-  <div class="box">
-    <h2>Welcome to Hangout</h2>
-    <p>Log in or create an account to chat with the group.</p>
-    <div id="auth-tabs">
-      <button id="tab-login" class="active">Log in</button>
-      <button id="tab-register">Register</button>
-    </div>
-    <input id="auth-username" maxlength="24" placeholder="Username" autocomplete="username">
-    <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
-    <input id="auth-password-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" style="display:none;">
-    <div id="auth-error"></div>
-    <button id="auth-submit">Log in</button>
-  </div>
-</div>
-
-<div id="profile-modal" style="display:none;">
-  <div class="box">
-    <h2>Edit Profile</h2>
-    <p>Set your status, a custom message, and your photo or avatar color.</p>
-    <div id="avatar-upload-row">
-      <span class="avatar mini" id="avatar-preview">?</span>
-      <label class="upload-btn" for="avatar-file-input">Change photo</label>
-      <input type="file" id="avatar-file-input" accept="image/*" style="display:none;">
-      <button type="button" id="avatar-remove-btn" class="text-btn">Remove</button>
-    </div>
-    <div id="profile-error"></div>
-    <div id="status-options">
-      <button type="button" class="status-option" data-status="online"><span class="dot" style="background:#23a559"></span>Online</button>
-      <button type="button" class="status-option" data-status="idle"><span class="dot" style="background:#f0b132"></span>Idle</button>
-      <button type="button" class="status-option" data-status="dnd"><span class="dot" style="background:#f23f42"></span>Do Not Disturb</button>
-      <button type="button" class="status-option" data-status="invisible"><span class="dot" style="background:#80848e"></span>Invisible</button>
-    </div>
-    <input id="status-text-input" maxlength="60" placeholder="Custom status (optional)">
-    <div id="color-swatches"></div>
-    <div class="modal-actions">
-      <button id="profile-cancel" type="button">Cancel</button>
-      <button id="profile-save" type="button">Save</button>
+  <div id="auth-modal">
+    <div class="box">
+      <h2>Welcome to Hangout</h2>
+      <p>Log in or create an account to chat with the group.</p>
+      <div id="auth-tabs">
+        <button id="tab-login" class="active">Log in</button>
+        <button id="tab-register">Register</button>
+      </div>
+      <input id="auth-username" maxlength="24" placeholder="Username" autocomplete="username">
+      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
+      <input id="auth-password-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" style="display:none;">
+      <div id="auth-error"></div>
+      <button id="auth-submit">Log in</button>
     </div>
   </div>
-</div>
 
-<div id="channels">
-  <h2>🏠 Hangout</h2>
-  <div class="channel active" data-ch="general"># general</div>
-  <div class="channel" data-ch="random"># random</div>
-  <div class="channel" data-ch="gaming"># gaming</div>
-  <div class="channel" data-ch="memes"># memes</div>
-  <div id="nick-box">
-    <button id="profile-trigger" type="button" title="Edit profile">
-      <span class="avatar-wrap">
-        <span class="avatar mini" id="my-avatar">?</span>
-        <span class="status-dot" id="my-status-dot"></span>
-      </span>
-      <span class="profile-trigger-info">
-        <b id="nick-display">—</b>
-        <span id="my-status-text"></span>
-      </span>
-    </button>
-    <button id="logout-btn">Log out</button>
-  </div>
-</div>
-
-<div id="main">
-  <div id="setup-banner">⚠️ Firebase isn't configured yet. Add FIREBASE_CONFIG near the top of the script.</div>
-  <div id="header"># general</div>
-  <div id="messages"><div id="empty">Loading...</div></div>
-  <div id="input-area">
-    <div id="input-row">
-      <input id="msg-input" placeholder="Message #general" disabled>
-      <button id="send-btn" disabled>Send</button>
-      <div id="mention-menu"></div>
-    </div>
-  </div>
-</div>
-
-<div id="online">
-  <h3>Online — <span id="online-count">0</span></h3>
-  <div id="online-list"></div>
-</div>
-
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
-
-<script>
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBuCWVloW2QxsX40IfUIReBg7HWZCzty_I",
-  authDomain: "rod-of-discord.firebaseapp.com",
-  projectId: "rod-of-discord",
-  storageBucket: "rod-of-discord.firebasestorage.app",
-  messagingSenderId: "881588222910",
-  appId: "1:881588222910:web:96d0bf399f2ef8133817ef"
-};
-
-let db = null, auth = null, storage = null;
-let nickname = '';
-let pendingAvatarBlob = null;
-let pendingAvatarRemoved = false;
-let clientId = localStorage.getItem('hangout_client_id');
-if (!clientId){
-  clientId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,10);
-  localStorage.setItem('hangout_client_id', clientId);
-}
-let currentChannel = 'general';
-let unsubMessages = null, unsubPresence = null;
-let latestPeers = [];
-let presenceId = clientId;
-let authMode = 'login';
-const COLORS = ['#d95763','#d99a3d','#2f9e8f','#c66b9b','#6f8fc7','#8b7bb8'];
-const STATUS_META = {
-  online: { label:'Online', color:'#23a559' },
-  idle: { label:'Idle', color:'#f0b132' },
-  dnd: { label:'Do Not Disturb', color:'#f23f42' },
-  invisible: { label:'Invisible', color:'#80848e' }
-};
-
-// ---------- Profile (status / custom message / color) ----------
-let myProfile = { status:'online', statusText:'', color:null };
-(function loadProfile(){
-  try {
-    const saved = JSON.parse(localStorage.getItem('hangout_profile_' + clientId) || 'null');
-    if (saved) myProfile = Object.assign(myProfile, saved);
-  } catch(e){}
-})();
-function saveProfileLocal(){ try { localStorage.setItem('hangout_profile_' + clientId, JSON.stringify(myProfile)); } catch(e){} }
-function statusColor(status){ return (STATUS_META[status] || STATUS_META.online).color; }
-function peerColor(p){ return (p && p.color) || colorFor(p ? p.name : '?'); }
-
-function colorFor(name){ let h=0; for(const c of name) h=(h*31+c.charCodeAt(0))%COLORS.length; return COLORS[h]; }
-function initials(name){ return (name||'?').trim().slice(0,2).toUpperCase(); }
-function handleFor(name){ return (name||'someone').trim().toLowerCase().replace(/\s+/g,'_'); }
-function uniquePeers(peers){
-  const byName = new Map();
-  peers.forEach(peer => {
-    if (!peer.name) return;
-    const key = peer.name.trim().toLowerCase();
-    const current = byName.get(key);
-    if (!current || (peer.ts || 0) > (current.ts || 0)) byName.set(key, peer);
-  });
-  return [...byName.values()];
-}
-function fmtTime(ts){
-  if (!ts) return 'sending…';
-  const millis = typeof ts.toMillis === 'function' ? ts.toMillis() : ts;
-  return new Date(millis).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-}
-function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function normalizeUsername(value){ return value.trim().toLowerCase(); }
-function validUsername(value){ return /^[a-z0-9._-]{3,24}$/.test(value); }
-function usernameToEmail(u){ return normalizeUsername(u) + '@hangout.local'; }
-function formatMessage(text){
-  let html = escapeHtml(text);
-  html = html.replace(/(^|\s)(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi, (match, prefix, value) => {
-    const trailing = value.match(/[.,!?;:)]+$/)?.[0] || '';
-    const url = value.slice(0, value.length - trailing.length);
-    const href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
-    return prefix + '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + url + '</a>' + trailing;
-  });
-  latestPeers.forEach(peer => {
-    if (!peer.name) return;
-    const mention = '@' + escapeHtml(peer.name);
-    html = html.replace(new RegExp('(^|\\s)(' + mention.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?=\\s|$)', 'gi'), '$1<span class="mention">$2</span>');
-  });
-  return html;
-}
-
-// ---------- Auth UI ----------
-function setAuthMode(mode){
-  authMode = mode;
-  document.getElementById('tab-login').classList.toggle('active', mode==='login');
-  document.getElementById('tab-register').classList.toggle('active', mode==='register');
-  document.getElementById('auth-submit').textContent = mode==='login' ? 'Log in' : 'Create account';
-  document.getElementById('auth-password').autocomplete = mode==='login' ? 'current-password' : 'new-password';
-  document.getElementById('auth-password-confirm').style.display = mode==='register' ? 'block' : 'none';
-  document.getElementById('auth-password-confirm').value = '';
-  document.getElementById('auth-error').style.display = 'none';
-}
-document.getElementById('tab-login').onclick = () => setAuthMode('login');
-document.getElementById('tab-register').onclick = () => setAuthMode('register');
-
-function showAuthError(msg){
-  const el = document.getElementById('auth-error');
-  el.textContent = msg;
-  el.style.display = 'block';
-}
-function friendlyAuthError(code){
-  const map = {
-    'auth/email-already-in-use': 'That username is already taken.',
-    'auth/weak-password': 'Password must be at least 6 characters.',
-    'auth/user-not-found': 'No account with that username.',
-    'auth/wrong-password': 'Wrong password.',
-    'auth/invalid-credential': 'Wrong username or password.',
-    'auth/invalid-email': 'Username has unsupported characters — use letters, numbers, dots, underscores, or hyphens.',
-    'auth/network-request-failed': 'Could not reach Firebase. Check your internet connection.',
-    'auth/too-many-requests': 'Too many attempts. Wait a moment and try again.',
-    'auth/operation-not-allowed': 'Email/password sign-in is disabled in Firebase Authentication.'
-  };
-  return map[code] || 'Something went wrong. Try again.';
-}
-
-async function submitAuth(){
-  const username = document.getElementById('auth-username').value.trim();
-  const normalizedUsername = normalizeUsername(username);
-  const password = document.getElementById('auth-password').value;
-  if (!username || !password){ showAuthError('Enter a username and password.'); return; }
-  if (!validUsername(normalizedUsername)){
-    showAuthError('Username must be 3–24 characters: letters, numbers, dots, underscores, or hyphens.');
-    return;
-  }
-  if (authMode === 'register'){
-    const confirm = document.getElementById('auth-password-confirm').value;
-    if (password !== confirm){ showAuthError('Passwords do not match.'); return; }
-  }
-  if (!auth){ showAuthError('Not connected to Firebase yet.'); return; }
-  const btn = document.getElementById('auth-submit');
-  btn.disabled = true;
-  const email = usernameToEmail(normalizedUsername);
-  try {
-    if (authMode === 'register'){
-      const cred = await auth.createUserWithEmailAndPassword(email, password);
-      await cred.user.updateProfile({ displayName: normalizedUsername });
-      nickname = normalizedUsername;
-      document.getElementById('nick-display').textContent = nickname;
-    } else {
-      await auth.signInWithEmailAndPassword(email, password);
-    }
-    // onAuthStateChanged below handles the rest
-  } catch(e){
-    showAuthError(friendlyAuthError(e.code));
-  } finally {
-    btn.disabled = false;
-  }
-}
-document.getElementById('auth-submit').onclick = submitAuth;
-document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
-document.getElementById('auth-password-confirm').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
-
-document.getElementById('logout-btn').onclick = () => { if (auth) auth.signOut(); };
-
-// ---------- Profile modal ----------
-const profileModal = document.getElementById('profile-modal');
-function updateMyBadge(){
-  const meta = STATUS_META[myProfile.status] || STATUS_META.online;
-  const el = document.getElementById('my-avatar');
-  if (myProfile.avatarUrl){
-    el.style.background = 'transparent';
-    el.innerHTML = `<img src="${escapeHtml(myProfile.avatarUrl)}" alt="">`;
-  } else {
-    el.style.background = myProfile.color || colorFor(nickname || '?');
-    el.textContent = initials(nickname);
-  }
-  document.getElementById('my-status-dot').style.background = meta.color;
-  document.getElementById('my-status-text').textContent = myProfile.statusText || meta.label;
-}
-function showProfileError(msg){
-  const el = document.getElementById('profile-error');
-  el.textContent = msg;
-  el.style.display = 'block';
-}
-function friendlyStorageError(code){
-  const map = {
-    'storage/unauthorized': 'Not allowed to upload — check Firebase Storage rules.',
-    'storage/canceled': 'Upload canceled.',
-    'storage/quota-exceeded': 'Storage quota exceeded.',
-    'storage/unknown': 'Upload failed. Try a different image.'
-  };
-  return map[code] || 'Could not upload photo. Try again.';
-}
-function resizeImageToBlob(file, size){
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = size; canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        const scale = Math.max(size / img.width, size / img.height);
-        const w = img.width * scale, h = img.height * scale;
-        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not process image')), 'image/jpeg', 0.85);
-      };
-      img.onerror = () => reject(new Error('Could not read image'));
-      img.src = reader.result;
-    };
-    reader.onerror = () => reject(new Error('Could not read file'));
-    reader.readAsDataURL(file);
-  });
-}
-async function uploadAvatar(blob){
-  if (!storage) throw { code: 'storage/unknown', message: 'Storage is not available' };
-  const uid = (auth.currentUser && auth.currentUser.uid) || clientId;
-  const ref = storage.ref().child('avatars/' + uid + '.jpg');
-  await ref.put(blob, { contentType: 'image/jpeg' });
-  return await ref.getDownloadURL();
-}
-function resetAvatarPreview(){
-  pendingAvatarBlob = null;
-  pendingAvatarRemoved = false;
-  document.getElementById('avatar-file-input').value = '';
-  const el = document.getElementById('avatar-preview');
-  if (myProfile.avatarUrl){
-    el.style.background = 'transparent';
-    el.innerHTML = `<img src="${escapeHtml(myProfile.avatarUrl)}" alt="">`;
-  } else {
-    el.style.background = myProfile.color || colorFor(nickname || '?');
-    el.textContent = initials(nickname);
-  }
-}
-document.getElementById('avatar-file-input').addEventListener('change', async e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')){ showProfileError('Please choose an image file.'); return; }
-  document.getElementById('profile-error').style.display = 'none';
-  try {
-    const blob = await resizeImageToBlob(file, 128);
-    pendingAvatarBlob = blob;
-    pendingAvatarRemoved = false;
-    const previewUrl = URL.createObjectURL(blob);
-    const el = document.getElementById('avatar-preview');
-    el.style.background = 'transparent';
-    el.innerHTML = `<img src="${previewUrl}" alt="">`;
-  } catch(err){
-    showProfileError(err.message || 'Could not process that image.');
-  }
-});
-document.getElementById('avatar-remove-btn').onclick = () => {
-  pendingAvatarBlob = null;
-  pendingAvatarRemoved = true;
-  document.getElementById('avatar-file-input').value = '';
-  const el = document.getElementById('avatar-preview');
-  el.style.background = myProfile.color || colorFor(nickname || '?');
-  el.innerHTML = escapeHtml(initials(nickname));
-};
-function renderColorSwatches(){
-  const wrap = document.getElementById('color-swatches');
-  const options = COLORS.concat([null]);
-  wrap.innerHTML = options.map(c => `<button type="button" class="swatch${(myProfile.color||null)===c ? ' active':''}" data-color="${c||''}" style="background:${c || 'linear-gradient(135deg,#5865f2,#eb459e)'}"></button>`).join('');
-  wrap.querySelectorAll('.swatch').forEach(sw => {
-    sw.onclick = () => {
-      wrap.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
-      sw.classList.add('active');
-      wrap.dataset.selected = sw.dataset.color || '';
-    };
-  });
-  wrap.dataset.selected = myProfile.color || '';
-}
-function openProfileModal(){
-  document.querySelectorAll('.status-option').forEach(b => b.classList.toggle('active', b.dataset.status === myProfile.status));
-  document.getElementById('status-text-input').value = myProfile.statusText || '';
-  renderColorSwatches();
-  resetAvatarPreview();
-  document.getElementById('profile-error').style.display = 'none';
-  profileModal.style.display = 'flex';
-}
-function closeProfileModal(){ profileModal.style.display = 'none'; }
-document.getElementById('profile-trigger').onclick = openProfileModal;
-document.getElementById('profile-cancel').onclick = closeProfileModal;
-document.querySelectorAll('.status-option').forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll('.status-option').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  };
-});
-document.getElementById('profile-save').onclick = async () => {
-  const activeBtn = document.querySelector('.status-option.active');
-  myProfile.status = activeBtn ? activeBtn.dataset.status : 'online';
-  myProfile.statusText = document.getElementById('status-text-input').value.trim().slice(0,60);
-  const wrap = document.getElementById('color-swatches');
-  myProfile.color = wrap.dataset.selected || null;
-  document.getElementById('profile-error').style.display = 'none';
-  const saveBtn = document.getElementById('profile-save');
-  saveBtn.disabled = true;
-  saveBtn.textContent = pendingAvatarBlob ? 'Uploading…' : 'Save';
-  try {
-    if (pendingAvatarRemoved){
-      myProfile.avatarUrl = null;
-    }
-    if (pendingAvatarBlob){
-      myProfile.avatarUrl = await uploadAvatar(pendingAvatarBlob);
-    }
-    saveProfileLocal();
-    updateMyBadge();
-    pushPresence();
-    closeProfileModal();
-  } catch(err){
-    showProfileError(friendlyStorageError(err.code));
-  } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save';
-  }
-};
-
-// ---------- Chat ----------
-function renderMessages(docs){
-  const el = document.getElementById('messages');
-  if (!docs.length){ el.innerHTML = '<div id="empty">No messages yet. Say hi 👋</div>'; return; }
-  el.innerHTML = docs.map(m => `
-    <div class="msg">
-      <div class="avatar" style="${m.avatarUrl ? '' : 'background:'+(m.color || colorFor(m.author||'?'))}">${m.avatarUrl ? '<img src="'+escapeHtml(m.avatarUrl)+'" alt="">' : initials(m.author)}</div>
-      <div class="msg-body">
-        <div class="top"><span class="author">${escapeHtml(m.author||'Someone')}</span><span class="time">${fmtTime(m.ts)}</span></div>
-        <div class="text">${formatMessage(m.text||'')}</div>
+  <div id="profile-modal" style="display:none;">
+    <div class="box">
+      <h2>Edit Profile</h2>
+      <p>Set your status, a custom message, and your photo or avatar color.</p>
+      <div id="avatar-upload-row">
+        <span class="avatar mini" id="avatar-preview">?</span>
+        <label class="upload-btn" for="avatar-file-input">Change photo</label>
+        <input type="file" id="avatar-file-input" accept="image/*" style="display:none;">
+        <button type="button" id="avatar-remove-btn" class="text-btn">Remove</button>
+      </div>
+      <div id="profile-error"></div>
+      <div id="status-options">
+        <button type="button" class="status-option" data-status="online"><span class="dot" style="background:#23a559"></span>Online</button>
+        <button type="button" class="status-option" data-status="idle"><span class="dot" style="background:#f0b132"></span>Idle</button>
+        <button type="button" class="status-option" data-status="dnd"><span class="dot" style="background:#f23f42"></span>Do Not Disturb</button>
+        <button type="button" class="status-option" data-status="invisible"><span class="dot" style="background:#80848e"></span>Invisible</button>
+      </div>
+      <input id="status-text-input" maxlength="60" placeholder="Custom status (optional)">
+      <div id="color-swatches"></div>
+      <div class="modal-actions">
+        <button id="profile-cancel" type="button">Cancel</button>
+        <button id="profile-save" type="button">Save</button>
       </div>
     </div>
-  `).join('');
-  el.scrollTop = el.scrollHeight;
-}
+  </div>
 
-function subscribeChannel(ch){
-  if (!db) return;
-  if (unsubMessages) unsubMessages();
-  document.getElementById('messages').innerHTML = '<div id="empty">Loading...</div>';
-  unsubMessages = db.collection('hangout_messages')
-    .where('channel', '==', ch).orderBy('ts').limitToLast(200)
-    .onSnapshot(snap => renderMessages(snap.docs.map(d => d.data())),
-      err => { document.getElementById('messages').innerHTML = '<div id="empty">Could not load messages: ' + escapeHtml(err.message || err.code || 'unknown error') + '</div>'; });
-}
+  <div id="channels">
+    <h2>🏠 Hangout</h2>
+    <div class="channel active" data-ch="general"># general</div>
+    <div class="channel" data-ch="random"># random</div>
+    <div class="channel" data-ch="gaming"># gaming</div>
+    <div class="channel" data-ch="memes"># memes</div>
+    <div id="nick-box">
+      <button id="profile-trigger" type="button" title="Edit profile">
+        <span class="avatar-wrap">
+          <span class="avatar mini" id="my-avatar">?</span>
+          <span class="status-dot" id="my-status-dot"></span>
+        </span>
+        <span class="profile-trigger-info">
+          <b id="nick-display">—</b>
+          <span id="my-status-text"></span>
+        </span>
+      </button>
+      <button id="logout-btn">Log out</button>
+    </div>
+  </div>
 
-document.querySelectorAll('.channel').forEach(el => {
-  el.onclick = () => {
-    document.querySelectorAll('.channel').forEach(c => c.classList.remove('active'));
-    el.classList.add('active');
-    currentChannel = el.dataset.ch;
-    document.getElementById('header').textContent = '# ' + currentChannel;
-    document.getElementById('msg-input').placeholder = 'Message #' + currentChannel;
-    subscribeChannel(currentChannel);
-  };
-});
+  <div id="main">
+    <div id="setup-banner">⚠️ Firebase isn't configured yet. Add FIREBASE_CONFIG near the top of the script.</div>
+    <div id="header"># general</div>
+    <div id="messages"><div id="empty">Loading...</div></div>
+    <div id="input-area">
+      <div id="input-row">
+        <input id="msg-input" placeholder="Message #general" disabled>
+        <button id="send-btn" disabled>Send</button>
+        <div id="mention-menu"></div>
+      </div>
+    </div>
+  </div>
 
-async function sendMessage(){
-  const input = document.getElementById('msg-input');
-  const text = input.value.trim();
-  if (!text || !db) return;
-  input.value = '';
-  try {
-    await db.collection('hangout_messages').add({ channel: currentChannel, author: nickname, text, color: myProfile.color || null, avatarUrl: myProfile.avatarUrl || null, ts: firebase.firestore.FieldValue.serverTimestamp() });
-  } catch(e){
-    document.getElementById('messages').insertAdjacentHTML('beforeend', '<div id="empty">Send failed: ' + escapeHtml(e.message || e.code || 'unknown error') + '</div>');
-  }
-}
-document.getElementById('send-btn').onclick = sendMessage;
-const messageInput = document.getElementById('msg-input');
-messageInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') sendMessage();
-  if (e.key === 'Escape') document.getElementById('mention-menu').classList.remove('open');
-});
+  <div id="online">
+    <h3>Online — <span id="online-count">0</span></h3>
+    <div id="online-list"></div>
+  </div>
 
-function renderMentionMenu(){
-  const menu = document.getElementById('mention-menu');
-  const cursor = messageInput.selectionStart ?? messageInput.value.length;
-  const before = messageInput.value.slice(0, cursor);
-  const match = before.match(/(?:^|\s)@([^\s@]*)$/);
-  if (!match){ menu.classList.remove('open'); return; }
-  const query = match[1].toLowerCase();
-  const members = uniquePeers(latestPeers).filter(p => p.name && p.name.trim().toLowerCase() !== nickname.trim().toLowerCase() && p.name.toLowerCase().includes(query));
-  const cutoff = Date.now() - 20000;
-  menu.innerHTML = members.map(p => {
-    const isOffline = p.ts <= cutoff || p.status === 'invisible';
-    const dotColor = isOffline ? STATUS_META.invisible.color : statusColor(p.status || 'online');
-    const avatarInner = p.avatarUrl ? '<img src="'+escapeHtml(p.avatarUrl)+'" alt="">' : escapeHtml(initials(p.name));
-    const avatarBg = p.avatarUrl ? '' : `background:${peerColor(p)}`;
-    return `<button class="mention-option" type="button" data-name="${escapeHtml(p.name)}">
-    <span class="member-avatar" style="${avatarBg}">${avatarInner}</span>
-    <span class="member-info"><span class="member-name">${escapeHtml(p.name)}</span><span class="member-handle">@${escapeHtml(handleFor(p.name))}</span></span>
-    <span class="mention-status" style="background:${dotColor}" title="${isOffline ? 'Offline' : (STATUS_META[p.status]||STATUS_META.online).label}"></span>
-  </button>`;
-  }).join('') || '<div class="mention-option" style="color:var(--muted)">No matching members</div>';
-  menu.classList.add('open');
-  menu.querySelectorAll('.mention-option[data-name]').forEach(button => {
-    button.onmousedown = e => {
-      e.preventDefault();
-      const name = button.dataset.name;
-      const tokenStart = before.lastIndexOf('@');
-      const after = messageInput.value.slice(cursor);
-      messageInput.value = messageInput.value.slice(0, tokenStart) + '@' + name + ' ' + after;
-      const nextCursor = tokenStart + name.length + 2;
-      messageInput.focus();
-      messageInput.setSelectionRange(nextCursor, nextCursor);
-      renderMentionMenu();
-    };
-  });
-}
-messageInput.addEventListener('input', renderMentionMenu);
-document.addEventListener('click', e => {
-  if (!document.getElementById('input-row').contains(e.target)) document.getElementById('mention-menu').classList.remove('open');
-});
-
-function peerRow(p, offline){
-  const dotColor = offline ? STATUS_META.invisible.color : statusColor(p.status || 'online');
-  const statusLabel = offline ? 'Offline' : (STATUS_META[p.status] || STATUS_META.online).label;
-  const isMe = p.name.trim().toLowerCase() === nickname.trim().toLowerCase();
-  const avatarInner = p.avatarUrl ? '<img src="'+escapeHtml(p.avatarUrl)+'" alt="">' : escapeHtml(initials(p.name));
-  const avatarBg = p.avatarUrl ? '' : `background:${peerColor(p)}`;
-  return `
-    <div class="peer" style="${offline ? 'opacity:.62' : ''}">
-      <span class="avatar-wrap">
-        <span class="member-avatar" style="${avatarBg}">${avatarInner}</span>
-        <span class="status-dot" style="background:${dotColor}" title="${statusLabel}"></span>
-      </span>
-      <span class="member-info">
-        <span class="member-name">${escapeHtml(p.name)}${isMe ? ' (you)' : ''}</span>
-        ${p.statusText ? `<span class="member-status-text">${escapeHtml(p.statusText)}</span>` : `<span class="member-handle">@${escapeHtml(handleFor(p.name))}</span>`}
-      </span>
-    </div>`;
-}
-function renderOnline(){
-  const cutoff = Date.now() - 20000;
-  const peers = uniquePeers(latestPeers);
-  const active = peers.filter(p => p.ts > cutoff && p.status !== 'invisible');
-  const offline = peers.filter(p => !(p.ts > cutoff) || p.status === 'invisible');
-  document.getElementById('online-count').textContent = active.length;
-  document.getElementById('online-list').innerHTML =
-    active.map(p => peerRow(p, false)).join('') +
-    (offline.length ? '<div class="member-group-label">Offline</div>' + offline.map(p => peerRow(p, true)).join('') : '') ||
-    '<div class="peer" style="color:var(--muted)">No members yet</div>';
-  if (document.getElementById('mention-menu').classList.contains('open')) renderMentionMenu();
-}
-function pushPresence(){
-  if (!db || !nickname) return;
-  const ref = db.collection('hangout_presence').doc(presenceId);
-  ref.set({ name: nickname, ts: Date.now(), status: myProfile.status, statusText: myProfile.statusText || '', color: myProfile.color || null }).catch(()=>{});
-}
-function startPresence(){
-  if (!db || !nickname) return;
-  presenceId = auth.currentUser?.uid || clientId;
-  pushPresence();
-  setInterval(pushPresence, 8000);
-  if (unsubPresence) unsubPresence();
-  unsubPresence = db.collection('hangout_presence').onSnapshot(snap => {
-    latestPeers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderOnline();
-  });
-  setInterval(renderOnline, 5000);
-}
-
-function enableChat(){
-  document.getElementById('msg-input').disabled = false;
-  document.getElementById('send-btn').disabled = false;
-  subscribeChannel(currentChannel);
-}
-function disableChat(){
-  document.getElementById('msg-input').disabled = true;
-  document.getElementById('send-btn').disabled = true;
-  if (unsubMessages) unsubMessages();
-  if (unsubPresence) unsubPresence();
-}
-
-function firebaseConfigured(){ return FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'PASTE_ME'; }
-
-function init(){
-  if (!firebaseConfigured()){
-    document.getElementById('setup-banner').style.display = 'block';
-    return;
-  }
-  firebase.initializeApp(FIREBASE_CONFIG);
-  db = firebase.firestore();
-  auth = firebase.auth();
-  try { storage = firebase.storage(); } catch(e){ storage = null; }
-
-  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {
-    showAuthError('Firebase is connected, but this browser could not save the login session.');
-  });
-
-  auth.onAuthStateChanged(user => {
-    if (user){
-      nickname = user.displayName || 'Someone';
-      document.getElementById('nick-display').textContent = nickname;
-      document.getElementById('auth-modal').style.display = 'none';
-      updateMyBadge();
-      enableChat();
-      startPresence();
-    } else {
-      nickname = '';
-      document.getElementById('auth-modal').style.display = 'flex';
-      disableChat();
-    }
-  });
-}
-init();
-</script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
+  <!-- Updated script tag to load app.js -->
+  <script src="./app.js"></script>
 </body>
 </html>
