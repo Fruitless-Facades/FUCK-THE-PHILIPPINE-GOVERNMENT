@@ -73,7 +73,14 @@
 
   <div id="main">
     <div id="setup-banner">⚠️ Firebase isn't configured yet. Add FIREBASE_CONFIG near the top of the script.</div>
-    <div id="header"># general</div>
+    <div id="header">
+      <button id="mobile-channel-toggle" type="button" aria-label="Open channels">‹</button>
+      <div id="header-channel-wrap">
+        <span id="header-channel"># general</span>
+        <span id="mobile-online"><span class="online-indicator"></span><span id="mobile-online-count">0</span> Online</span>
+      </div>
+      <button id="mobile-search" type="button" aria-label="Search messages">⌕</button>
+    </div>
     <div id="messages"><div id="empty">Loading...</div></div>
     <div id="input-area">
       <div id="upload-status" style="display:none;"></div>

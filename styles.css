@@ -184,6 +184,10 @@ body {
   color: #fff;
 }
 
+#mobile-channel-toggle, #mobile-search, #mobile-online {
+  display: none;
+}
+
 #messages {
   flex: 1;
   overflow-y: auto;
@@ -799,6 +803,7 @@ body {
     height: 100dvh;
     min-height: 0;
     flex-direction: column;
+    background: #0b0b0f;
   }
 
   #online {
@@ -806,46 +811,49 @@ body {
   }
 
   #channels {
-    position: relative;
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 8;
     width: 100%;
-    height: 108px;
-    flex-shrink: 0;
-    padding: 10px 8px 6px;
-    overflow: hidden;
+    height: 100dvh;
+    padding: calc(18px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    background: #0b0b0f;
+  }
+
+  #channels.mobile-open {
+    display: flex;
   }
 
   #channels h2 {
-    margin: 2px 8px 8px;
-    padding-right: 145px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    margin: 8px 10px 22px;
+    font-size: 23px;
+    letter-spacing: 0;
   }
 
   #channels .channel {
-    display: inline-flex;
-    min-height: 40px;
-    margin: 0 2px 0 0;
-    padding: 8px 10px;
+    display: flex;
+    min-height: 48px;
+    margin: 0 0 4px;
+    padding: 10px 14px;
+    border-radius: 10px;
     white-space: nowrap;
+    font-size: 16px;
   }
 
   #nick-box {
-    position: absolute;
-    top: 7px;
-    right: 8px;
-    margin: 0;
-    padding: 0;
-    border-top: none;
-    width: auto;
+    margin-top: auto;
+    padding: 12px 4px 0;
+    border-top: 1px solid #24242a;
   }
 
   #profile-trigger {
-    flex: 0 0 auto;
+    flex: 1;
   }
 
   .profile-trigger-info {
-    display: none;
+    display: flex;
   }
 
   #logout-btn {
@@ -856,21 +864,90 @@ body {
   #main {
     width: 100%;
     min-height: 0;
+    background: #0b0b0f;
   }
 
   #header {
-    height: 44px;
-    padding: 0 12px;
+    height: 64px;
+    padding: env(safe-area-inset-top, 0px) 14px 0 8px;
+    background: #0b0b0f;
+    border-bottom: 1px solid #29292f;
+    gap: 8px;
+  }
+
+  #mobile-channel-toggle, #mobile-search {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: #b9bac1;
+    cursor: pointer;
+  }
+
+  #mobile-channel-toggle {
+    font-size: 42px;
+    font-weight: 300;
+    line-height: 1;
+  }
+
+  #mobile-search {
+    margin-left: auto;
+    font-size: 32px;
+    line-height: 1;
+  }
+
+  #header-channel-wrap {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+  }
+
+  #header-channel {
+    overflow: hidden;
+    color: #f2f3f5;
+    font-size: 17px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #mobile-online {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #9a9ba3;
+    font-size: 12px;
+  }
+
+  .online-indicator {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--online);
   }
 
   #messages {
     min-height: 0;
-    padding: 12px 10px;
-    gap: 10px;
+    padding: 14px;
+    gap: 18px;
+    background: #0b0b0f;
   }
 
   .msg {
-    gap: 9px;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .msg .avatar {
+    width: 44px;
+    height: 44px;
+    font-size: 15px;
   }
 
   .msg-body {
@@ -878,16 +955,21 @@ body {
   }
 
   .msg-body .text {
-    font-size: 14px;
+    font-size: 16px;
+    line-height: 1.45;
   }
 
   #input-area {
-    padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: #0b0b0f;
   }
 
   #input-row {
-    min-height: 46px;
-    padding: 0 8px;
+    min-height: 56px;
+    padding: 0 10px 0 6px;
+    border: 1px solid #2a2a31;
+    border-radius: 28px;
+    background: #202025;
   }
 
   #input-row input {
@@ -896,12 +978,23 @@ body {
   }
 
   #attach-btn {
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 48px;
+    min-height: 48px;
+    color: #b9bac1;
   }
 
   #send-btn {
-    padding: 10px 12px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 0;
+  }
+
+  #send-btn::after {
+    content: '↑';
+    font-size: 21px;
+    line-height: 1;
   }
 
   #mention-menu {

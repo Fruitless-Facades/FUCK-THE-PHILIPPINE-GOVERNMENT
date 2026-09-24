@@ -29,6 +29,7 @@ let chatActive = false;
 let latestPeers = [];
 let presenceId = clientId;
 let authMode = 'login';
+let visibilityPauseTimer = null;
 
 const COLORS = ['#d95763', '#d99a3d', '#2f9e8f', '#c66b9b', '#6f8fc7', '#8b7bb8'];
 const STATUS_META = {
@@ -490,11 +491,16 @@ document.querySelectorAll('.channel').forEach(el => {
     document.querySelectorAll('.channel').forEach(c => c.classList.remove('active'));
     el.classList.add('active');
     currentChannel = el.dataset.ch;
-    document.getElementById('header').textContent = '# ' + currentChannel;
+    document.getElementById('header-channel').textContent = '# ' + currentChannel;
     document.getElementById('msg-input').placeholder = 'Message #' + currentChannel;
+    document.getElementById('channels').classList.remove('mobile-open');
     subscribeChannel(currentChannel);
   };
 });
+
+document.getElementById('mobile-channel-toggle').onclick = () => {
+  document.getElementById('channels').classList.toggle('mobile-open');
+};
 
 async function sendMessage() {
   const input = document.getElementById('msg-input');
@@ -682,6 +688,7 @@ function renderOnline() {
   const active = peers.filter(p => p.online !== false && p.status !== 'invisible');
   const offline = peers.filter(p => p.online === false || p.status === 'invisible');
   document.getElementById('online-count').textContent = active.length;
+  document.getElementById('mobile-online-count').textContent = active.length;
   document.getElementById('online-list').innerHTML =
     active.map(p => peerRow(p, false)).join('') +
     (offline.length ? '<div class="member-group-label">Offline</div>' + offline.map(p => peerRow(p, true)).join('') : '') ||
@@ -750,14 +757,21 @@ function disableChat() {
   if (unsubPresence && rtdb) { rtdb.ref('presence').off('value', unsubPresence); unsubPresence = null; }
 }
 
-// Pause the messages listener while the tab is backgrounded so idle open
-// tabs don't keep costing a Firestore read for every message someone else sends.
+// Keep short app switches from rereading the newest page. Long-idle tabs still
+// release the listener to avoid paying for messages while they are unattended.
 document.addEventListener('visibilitychange', () => {
   if (!chatActive) return;
   if (document.hidden) {
-    if (unsubMessages) { unsubMessages(); unsubMessages = null; }
+    clearTimeout(visibilityPauseTimer);
+    visibilityPauseTimer = setTimeout(() => {
+      if (document.hidden && unsubMessages) {
+        unsubMessages();
+        unsubMessages = null;
+      }
+    }, 5 * 60 * 1000);
   } else {
-    subscribeChannel(currentChannel);
+    clearTimeout(visibilityPauseTimer);
+    if (!unsubMessages) subscribeChannel(currentChannel);
   }
 });
 
