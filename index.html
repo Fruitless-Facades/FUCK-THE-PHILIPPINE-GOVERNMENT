@@ -78,7 +78,12 @@
     <div id="input-area">
       <div id="upload-status" style="display:none;"></div>
       <div id="input-row">
-        <button id="attach-btn" type="button" title="Attach a file" disabled>📎</button>
+        <div id="attach-menu-wrap">
+          <button id="attach-btn" type="button" title="More message options" aria-label="More message options" aria-expanded="false" disabled>+</button>
+          <div id="attach-menu" role="menu">
+            <button id="upload-file-btn" type="button" role="menuitem"><span aria-hidden="true">📎</span>Upload a File</button>
+          </div>
+        </div>
         <input type="file" id="file-input" style="display:none;">
         <input id="msg-input" placeholder="Message #general" disabled>
         <button id="send-btn" disabled>Send</button>

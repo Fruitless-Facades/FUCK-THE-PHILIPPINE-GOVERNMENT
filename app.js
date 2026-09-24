@@ -401,8 +401,21 @@ function renderAttachment(m) {
 }
 
 // ---------- Chat ----------
-function renderMessages(docs) {
+const MESSAGE_PAGE_SIZE = 20;
+const messageList = document.getElementById('messages');
+let loadedMessages = new Map();
+let oldestMessageDoc = null;
+let loadingOlderMessages = false;
+let hasOlderMessages = true;
+
+function messageTimestamp(message) {
+  if (!message || !message.ts) return 0;
+  return typeof message.ts.toMillis === 'function' ? message.ts.toMillis() : message.ts;
+}
+
+function renderMessages(docs, keepPosition = false) {
   const el = document.getElementById('messages');
+  const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   if (!docs.length) {
     el.innerHTML = '<div id="empty">No messages yet. Say hi 👋</div>';
     return;
@@ -417,18 +430,60 @@ function renderMessages(docs) {
       </div>
     </div>
   `).join('');
-  el.scrollTop = el.scrollHeight;
+  if (!keepPosition || wasAtBottom) el.scrollTop = el.scrollHeight;
 }
 
 function subscribeChannel(ch) {
   if (!db) return;
   if (unsubMessages) unsubMessages();
-  document.getElementById('messages').innerHTML = '<div id="empty">Loading...</div>';
+  loadedMessages = new Map();
+  oldestMessageDoc = null;
+  loadingOlderMessages = false;
+  hasOlderMessages = true;
+  messageList.innerHTML = '<div id="empty">Loading...</div>';
   unsubMessages = db.collection('hangout_messages')
-    .where('channel', '==', ch).orderBy('ts').limitToLast(20)
-    .onSnapshot(snap => renderMessages(snap.docs.map(d => d.data())),
-      err => { document.getElementById('messages').innerHTML = '<div id="empty">Could not load messages: ' + escapeHtml(err.message || err.code || 'unknown error') + '</div>'; });
+    .where('channel', '==', ch).orderBy('ts', 'desc').limit(MESSAGE_PAGE_SIZE)
+    .onSnapshot(snap => {
+      snap.docs.forEach(doc => loadedMessages.set(doc.id, doc.data()));
+      if (!oldestMessageDoc && snap.docs.length) oldestMessageDoc = snap.docs[snap.docs.length - 1];
+      hasOlderMessages = snap.docs.length === MESSAGE_PAGE_SIZE;
+      const docs = [...loadedMessages.values()].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
+      renderMessages(docs, loadedMessages.size > snap.docs.length);
+    }, err => {
+      messageList.innerHTML = '<div id="empty">Could not load messages: ' + escapeHtml(err.message || err.code || 'unknown error') + '</div>';
+    });
 }
+
+async function loadOlderMessages() {
+  if (!db || !oldestMessageDoc || loadingOlderMessages || !hasOlderMessages) return;
+  loadingOlderMessages = true;
+  const previousHeight = messageList.scrollHeight;
+  const previousTop = messageList.scrollTop;
+  const channelAtStart = currentChannel;
+  try {
+    const snap = await db.collection('hangout_messages')
+      .where('channel', '==', channelAtStart)
+      .orderBy('ts', 'desc')
+      .startAfter(oldestMessageDoc)
+      .limit(MESSAGE_PAGE_SIZE)
+      .get();
+    if (channelAtStart !== currentChannel) return;
+    snap.docs.forEach(doc => loadedMessages.set(doc.id, doc.data()));
+    if (snap.docs.length) oldestMessageDoc = snap.docs[snap.docs.length - 1];
+    hasOlderMessages = snap.docs.length === MESSAGE_PAGE_SIZE;
+    const docs = [...loadedMessages.values()].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
+    renderMessages(docs, true);
+    messageList.scrollTop = messageList.scrollHeight - previousHeight + previousTop;
+  } catch (err) {
+    console.error('Could not load older messages', err);
+  } finally {
+    loadingOlderMessages = false;
+  }
+}
+
+messageList.addEventListener('scroll', () => {
+  if (messageList.scrollTop <= 80) loadOlderMessages();
+});
 
 document.querySelectorAll('.channel').forEach(el => {
   el.onclick = () => {
@@ -497,7 +552,27 @@ function uploadFile(file) {
   });
 }
 
-document.getElementById('attach-btn').onclick = () => document.getElementById('file-input').click();
+const attachButton = document.getElementById('attach-btn');
+const attachMenu = document.getElementById('attach-menu');
+const uploadFileButton = document.getElementById('upload-file-btn');
+
+attachButton.onclick = () => {
+  const isOpen = attachMenu.classList.toggle('open');
+  attachButton.setAttribute('aria-expanded', String(isOpen));
+};
+
+uploadFileButton.onclick = () => {
+  attachMenu.classList.remove('open');
+  attachButton.setAttribute('aria-expanded', 'false');
+  document.getElementById('file-input').click();
+};
+
+document.addEventListener('click', e => {
+  if (!document.getElementById('attach-menu-wrap').contains(e.target)) {
+    attachMenu.classList.remove('open');
+    attachButton.setAttribute('aria-expanded', 'false');
+  }
+});
 
 document.getElementById('file-input').addEventListener('change', async e => {
   const file = e.target.files[0];
