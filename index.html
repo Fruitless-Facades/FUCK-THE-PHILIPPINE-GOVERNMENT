@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Hangout</title>
+  <title>🍇Fruitless Facades🍎</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 
   <div id="auth-modal">
     <div class="box">
-      <h2>Welcome to Hangout</h2>
+      <h2>Welcome to 🍇Fruitless Facades🍎</h2>
       <p>Log in or create an account to chat with the group.</p>
       <div id="auth-tabs">
         <button id="tab-login" class="active">Log in</button>
@@ -51,7 +51,7 @@
   </div>
 
   <div id="channels">
-    <h2>🏠 Hangout</h2>
+    <h2>🍇Fruitless Facades🍎</h2>
     <div class="channel active" data-ch="general"># general</div>
     <div class="channel" data-ch="random"># random</div>
     <div class="channel" data-ch="gaming"># gaming</div>
@@ -87,6 +87,7 @@
     <div id="messages"><div id="empty">Loading...</div></div>
     <div id="input-area">
       <div id="upload-status" style="display:none;"></div>
+      <div id="pending-attachment" style="display:none;"></div>
       <div id="input-row">
         <div id="attach-menu-wrap">
           <button id="attach-btn" type="button" title="More message options" aria-label="More message options" aria-expanded="false" disabled>+</button>
@@ -96,8 +97,60 @@
         </div>
         <input type="file" id="file-input" style="display:none;">
         <input id="msg-input" placeholder="Message #general" disabled>
+        <button id="emoji-btn" type="button" title="Open emoji picker" aria-label="Open emoji picker" aria-expanded="false" disabled>☺</button>
         <button id="send-btn" disabled>Send</button>
         <div id="mention-menu"></div>
+        <div id="emoji-autocomplete" role="listbox" aria-label="Emoji suggestions"></div>
+        <div id="emoji-picker" role="dialog" aria-label="Emoji picker">
+          <div id="emoji-picker-tabs" role="tablist" aria-label="Message content types">
+            <button type="button" class="emoji-tab active" role="tab" aria-selected="true" aria-controls="emoji-content" data-emoji-tab="emoji">Emoji</button>
+            <button type="button" class="emoji-tab" role="tab" aria-selected="false" aria-controls="gif-content" data-emoji-tab="gif">GIFs</button>
+            <button type="button" class="emoji-tab" role="tab" aria-selected="false" aria-controls="sticker-content" data-emoji-tab="sticker">Stickers</button>
+          </div>
+          <div id="emoji-picker-body">
+          <div id="emoji-subtabs" role="tablist" aria-label="Emoji sections">
+            <button type="button" class="emoji-subtab active" role="tab" aria-selected="true" data-emoji-subtab="favorites" data-tooltip="Favorites">★</button>
+            <button type="button" class="emoji-subtab" role="tab" aria-selected="false" data-emoji-subtab="recent" data-tooltip="Recently Used">◷</button>
+            <button type="button" class="emoji-subtab" role="tab" aria-selected="false" data-emoji-subtab="normal" data-tooltip="Normal Emoji">🙂</button>
+            <button type="button" class="emoji-subtab" role="tab" aria-selected="false" data-emoji-subtab="custom" data-tooltip="Custom Emoji">🍇</button>
+          </div>
+          <div id="emoji-content">
+          <section id="custom-emoji-section" class="emoji-section">
+            <div class="emoji-section-heading">
+              <strong>Custom emojis</strong>
+              <button id="custom-emoji-upload" type="button">＋ Upload</button>
+              <input id="custom-emoji-file" type="file" accept="image/*" hidden>
+            </div>
+            <div id="custom-emoji-list" class="emoji-grid"></div>
+            <p id="custom-emoji-empty">No custom emojis yet.</p>
+          </section>
+          <section id="normal-emoji-section" class="emoji-section" hidden>
+            <input id="emoji-search" type="search" placeholder="Search emoji" autocomplete="off">
+            <div id="normal-emoji-list"></div>
+          </section>
+          <section id="favorite-emoji-section" class="emoji-section" hidden>
+            <div id="favorite-emoji-list"></div>
+          </section>
+          <section id="recent-emoji-section" class="emoji-section" hidden>
+            <div id="recent-emoji-list"></div>
+          </section>
+          </div>
+          </div>
+          <section id="gif-content" class="gif-section" hidden>
+            <input id="gif-search" type="search" placeholder="Search GIPHY GIFs" autocomplete="off">
+            <p id="gif-status">Search GIPHY for a GIF.</p>
+            <div id="gif-results" class="gif-grid"></div>
+          </section>
+          <section id="sticker-content" class="gif-section" hidden>
+            <div class="emoji-section-heading">
+              <strong>Custom Stickers</strong>
+              <button id="custom-sticker-upload" type="button">＋ Upload</button>
+              <input id="custom-sticker-file" type="file" accept="image/*" hidden>
+            </div>
+            <p id="sticker-status">Upload a custom sticker to share it.</p>
+            <div id="sticker-results" class="gif-grid"></div>
+          </section>
+        </div>
       </div>
     </div>
   </div>

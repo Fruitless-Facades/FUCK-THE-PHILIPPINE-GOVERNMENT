@@ -8,8 +8,12 @@ const FIREBASE_CONFIG = {
   appId: "1:881588222910:web:96d0bf399f2ef8133817ef"
 };
 
+const GIPHY_MAX_SEARCHES_PER_DAY = 20;
+const GIPHY_MIN_SEARCH_INTERVAL_MS = 1000;
+
 // Paste your deployed Cloudflare Worker URL here, e.g. "https://hangout-upload.yourname.workers.dev"
 const UPLOAD_WORKER_URL = "https://fruitless-upload.ericjudo2.workers.dev";
+const GIPHY_PROXY_URL = UPLOAD_WORKER_URL + '/giphy-search';
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50MB cap
 
 let db = null, auth = null, rtdb = null;
@@ -26,8 +30,15 @@ if (!clientId) {
 
 let currentChannel = 'general';
 let unsubMessages = null, unsubPresence = null;
+let pendingAttachment = null; // { file, previewUrl, isImage } — staged locally, not uploaded until Send
+let pendingGif = null; // { url, title } — remote GIPHY URL, never uploaded locally
+let pendingSticker = null; // { url, title } — remote custom sticker URL
 let chatActive = false;
 let latestPeers = [];
+let customEmojis = [];
+let customEmojiUnsub = null;
+let customStickers = [];
+let customStickerUnsub = null;
 let presenceId = clientId;
 let authMode = 'login';
 let visibilityPauseTimer = null;
@@ -128,6 +139,11 @@ function formatMessage(text) {
     const url = value.slice(0, value.length - trailing.length);
     const href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
     return prefix + '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + url + '</a>' + trailing;
+  });
+  customEmojis.forEach(emoji => {
+    const token = ':' + emoji.name + ':';
+    const pattern = new RegExp(escapeHtml(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    html = html.replace(pattern, '<img class="custom-emoji" src="' + escapeHtml(emoji.url) + '" alt="' + escapeHtml(token) + '" title="' + escapeHtml(token) + '">');
   });
   latestPeers.forEach(peer => {
     if (!peer.name) return;
@@ -411,6 +427,14 @@ document.getElementById('profile-save').onclick = async () => {
 };
 
 function renderAttachment(m) {
+  if (m.stickerUrl) {
+    const safeStickerUrl = escapeHtml(m.stickerUrl);
+    return `<div class="attachment sticker-attachment"><img src="${safeStickerUrl}" alt="${escapeHtml(m.stickerTitle || 'Sticker')}" loading="lazy" decoding="async"></div>`;
+  }
+  if (m.gifUrl) {
+    const safeGifUrl = escapeHtml(m.gifUrl);
+    return `<div class="attachment gif-attachment"><img src="${safeGifUrl}" alt="${escapeHtml(m.gifTitle || 'GIF')}" loading="lazy" decoding="async"></div>`;
+  }
   if (!m.fileUrl) return '';
   const type = m.fileType || '';
   const safeUrl = escapeHtml(m.fileUrl);
@@ -553,8 +577,44 @@ window.addEventListener('resize', () => {
 async function sendMessage() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
-  if (!text || !db) return;
+  if (!db) return;
+  if (!text && !pendingAttachment && !pendingGif && !pendingSticker) return;
+
+  const attachment = pendingAttachment;
   input.value = '';
+
+  let fileUrl = null, fileName = null, fileType = null;
+  const gif = pendingGif;
+  const sticker = pendingSticker;
+
+  if (attachment) {
+    document.getElementById('attach-btn').disabled = true;
+    document.getElementById('send-btn').disabled = true;
+    showUploadStatus('Compressing ' + attachment.file.name + '…');
+    try {
+      const compressedFile = await compressMediaFile(attachment.file);
+      if (compressedFile.size > MAX_FILE_BYTES) throw new Error('That file is still too big after compression (50MB max).');
+      showUploadStatus('Uploading ' + compressedFile.name + '…');
+      const result = await uploadFile(compressedFile);
+      fileUrl = result.url;
+      fileName = result.name;
+      fileType = result.type;
+    } catch (err) {
+      showUploadStatus('Upload failed: ' + (err.message || 'unknown error'));
+      input.value = text; // don't lose what they typed
+      document.getElementById('attach-btn').disabled = false;
+      document.getElementById('send-btn').disabled = false;
+      return; // keep the attachment staged so they can just hit Send again
+    }
+    clearPendingAttachment();
+    hideUploadStatus();
+    document.getElementById('attach-btn').disabled = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+
+  clearPendingGif();
+  clearPendingSticker();
+
   try {
     await db.collection('hangout_messages').add({
       channel: currentChannel,
@@ -562,6 +622,11 @@ async function sendMessage() {
       text,
       color: myProfile.color || null,
       avatarUrl: myProfile.avatarUrl || null,
+      fileUrl, fileName, fileType,
+      gifUrl: gif ? gif.url : null,
+      gifTitle: gif ? gif.title : null,
+      stickerUrl: sticker ? sticker.url : null,
+      stickerTitle: sticker ? sticker.title : null,
       ts: firebase.firestore.FieldValue.serverTimestamp()
     });
   } catch (e) {
@@ -571,6 +636,383 @@ async function sendMessage() {
 
 document.getElementById('send-btn').onclick = sendMessage;
 const messageInput = document.getElementById('msg-input');
+
+const NORMAL_EMOJIS = Array.from('😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫡 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🤑 🤠 😈 👿 👹 👺 🤡 💩 👻 💀 ☠️ 👽 👾 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👋 🙏 👏 🙌 💪 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❌ ✅ ⭐ 🔥 🎉 🎂 🎁 💯'.split(' '));
+const SHORTCODE_EMOJIS = {
+  sob: '😭', cry: '😢', joy: '😂', laugh: '😆', smile: '😄', blush: '😊',
+  grin: '😁', wink: '😉', heart: '❤️', broken_heart: '💔', love: '😍',
+  angry: '😠', rage: '😡', scream: '😱', worried: '😟', confused: '😕',
+  thinking: '🤔', cool: '😎', nerd: '🤓', sunglasses: '😎', sleepy: '😴',
+  tired: '🥱', dizzy: '😵', clown: '🤡', skull: '💀', ghost: '👻', poop: '💩',
+  alien: '👽', robot: '🤖', wave: '👋', clap: '👏', pray: '🙏', muscle: '💪',
+  thumbs_up: '👍', thumbs_down: '👎', ok_hand: '👌', raised_hands: '🙌',
+  fire: '🔥', star: '⭐', tada: '🎉', gift: '🎁', check: '✅', x: '❌',
+  hundred: '💯', eyes: '👀', heart_eyes: '😍', sobbing: '😭', scream_cat: '🙀'
+};
+const emojiPicker = document.getElementById('emoji-picker');
+const emojiButton = document.getElementById('emoji-btn');
+const emojiSearch = document.getElementById('emoji-search');
+const customEmojiList = document.getElementById('custom-emoji-list');
+const normalEmojiList = document.getElementById('normal-emoji-list');
+const gifSearch = document.getElementById('gif-search');
+const gifResults = document.getElementById('gif-results');
+const gifStatus = document.getElementById('gif-status');
+const stickerResults = document.getElementById('sticker-results');
+const stickerStatus = document.getElementById('sticker-status');
+const emojiStorageKey = 'hangout_emoji_preferences_' + clientId;
+let emojiPreferences = { favorites: [], recent: [] };
+let activeEmojiSubtab = 'favorites';
+let gifSearchController = null;
+const giphyUsageKey = 'hangout_giphy_usage_' + clientId;
+let giphyUsage = { date: '', count: 0, lastAt: 0 };
+
+try {
+  giphyUsage = Object.assign(giphyUsage, JSON.parse(localStorage.getItem(giphyUsageKey) || '{}'));
+} catch (e) {}
+
+function saveGiphyUsage() {
+  try { localStorage.setItem(giphyUsageKey, JSON.stringify(giphyUsage)); } catch (e) {}
+}
+
+try {
+  emojiPreferences = Object.assign(emojiPreferences, JSON.parse(localStorage.getItem(emojiStorageKey) || '{}'));
+} catch (e) {}
+
+function saveEmojiPreferences() {
+  try { localStorage.setItem(emojiStorageKey, JSON.stringify(emojiPreferences)); } catch (e) {}
+}
+
+function emojiValue(item) {
+  return item.custom ? `:${item.name}:` : item.value;
+}
+
+function emojiTitle(item) {
+  return item.custom ? ':' + item.name + ':' : item.value;
+}
+
+function emojiButtonElement(item) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'emoji-choice';
+  button.title = emojiTitle(item) + ' (right-click to favorite)';
+  button.setAttribute('aria-label', emojiTitle(item));
+  if (item.custom) {
+    button.innerHTML = `<img src="${escapeHtml(item.url)}" alt="${escapeHtml(emojiTitle(item))}">`;
+  } else {
+    button.textContent = item.value;
+  }
+  button.onclick = () => insertEmoji(emojiValue(item));
+  button.oncontextmenu = event => {
+    event.preventDefault();
+    toggleFavorite(emojiValue(item));
+  };
+  return button;
+}
+
+function toggleFavorite(value) {
+  const favorites = emojiPreferences.favorites;
+  const index = favorites.indexOf(value);
+  if (index >= 0) favorites.splice(index, 1);
+  else favorites.unshift(value);
+  emojiPreferences.favorites = favorites.slice(0, 40);
+  saveEmojiPreferences();
+  renderEmojiSubtab(activeEmojiSubtab);
+}
+
+function addRecent(value) {
+  emojiPreferences.recent = [value, ...emojiPreferences.recent.filter(item => item !== value)].slice(0, 24);
+  saveEmojiPreferences();
+}
+
+function findEmoji(value) {
+  if (value.startsWith(':') && value.endsWith(':')) {
+    const name = value.slice(1, -1);
+    const custom = customEmojis.find(item => item.name === name);
+    return custom ? { custom: true, name: custom.name, url: custom.url } : null;
+  }
+  return NORMAL_EMOJIS.includes(value) ? { value } : null;
+}
+
+function renderEmojiGroup(container, title, values) {
+  if (!values.length) return;
+  const section = document.createElement('div');
+  section.className = 'emoji-group';
+  section.innerHTML = `<h4>${title}</h4>`;
+  const grid = document.createElement('div');
+  grid.className = 'emoji-grid';
+  values.map(findEmoji).filter(Boolean).forEach(item => grid.appendChild(emojiButtonElement(item)));
+  section.appendChild(grid);
+  container.appendChild(section);
+}
+
+function renderCustomEmojis() {
+  customEmojiList.innerHTML = '';
+  customEmojis.forEach(emoji => customEmojiList.appendChild(emojiButtonElement({
+    custom: true,
+    name: emoji.name,
+    url: emoji.url
+  })));
+  document.getElementById('custom-emoji-empty').style.display = customEmojis.length ? 'none' : 'block';
+}
+
+function renderNormalEmojis() {
+  const query = emojiSearch.value.trim();
+  normalEmojiList.innerHTML = '';
+  if (query) {
+    renderEmojiGroup(normalEmojiList, 'Results', NORMAL_EMOJIS.filter(value => value.includes(query)));
+    return;
+  }
+  renderEmojiGroup(normalEmojiList, 'All emoji', NORMAL_EMOJIS);
+}
+
+function renderEmojiValues(containerId, title, values) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  if (values.length) renderEmojiGroup(container, title, values);
+  else container.innerHTML = '<p class="emoji-empty-state">Nothing here yet.</p>';
+}
+
+function renderEmojiSubtab(tab) {
+  activeEmojiSubtab = tab;
+  document.querySelectorAll('.emoji-subtab').forEach(button => {
+    const active = button.dataset.emojiSubtab === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  const sections = {
+    custom: 'custom-emoji-section',
+    normal: 'normal-emoji-section',
+    favorites: 'favorite-emoji-section',
+    recent: 'recent-emoji-section'
+  };
+  Object.entries(sections).forEach(([name, id]) => {
+    document.getElementById(id).hidden = name !== tab;
+  });
+  if (tab === 'custom') renderCustomEmojis();
+  if (tab === 'normal') renderNormalEmojis();
+  if (tab === 'favorites') renderEmojiValues('favorite-emoji-list', '★ Favorites', emojiPreferences.favorites);
+  if (tab === 'recent') renderEmojiValues('recent-emoji-list', '◷ Recently Used', emojiPreferences.recent);
+}
+
+function insertEmoji(value) {
+  const start = messageInput.selectionStart ?? messageInput.value.length;
+  const end = messageInput.selectionEnd ?? start;
+  messageInput.value = messageInput.value.slice(0, start) + value + messageInput.value.slice(end);
+  messageInput.focus();
+  messageInput.setSelectionRange(start + value.length, start + value.length);
+  addRecent(value);
+}
+
+function setEmojiTab(tab) {
+  document.querySelectorAll('.emoji-tab').forEach(button => {
+    const active = button.dataset.emojiTab === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  document.getElementById('emoji-picker-body').hidden = tab !== 'emoji';
+  document.getElementById('gif-content').hidden = tab !== 'gif';
+  document.getElementById('sticker-content').hidden = tab !== 'sticker';
+  if (tab === 'emoji') renderEmojiSubtab(activeEmojiSubtab);
+}
+
+function closeEmojiPicker() {
+  if (gifSearchController) {
+    gifSearchController.abort();
+    gifSearchController = null;
+  }
+  emojiPicker.classList.remove('open');
+  emojiButton.setAttribute('aria-expanded', 'false');
+}
+
+emojiButton.onclick = () => {
+  const isOpen = emojiPicker.classList.toggle('open');
+  emojiButton.setAttribute('aria-expanded', String(isOpen));
+  if (isOpen) {
+    renderCustomEmojis();
+    setEmojiTab('emoji');
+    renderEmojiSubtab(activeEmojiSubtab);
+  }
+};
+
+document.querySelectorAll('.emoji-tab').forEach(button => {
+  button.onclick = () => setEmojiTab(button.dataset.emojiTab);
+});
+document.querySelectorAll('.emoji-subtab').forEach(button => {
+  button.onclick = () => renderEmojiSubtab(button.dataset.emojiSubtab);
+});
+emojiSearch.oninput = renderNormalEmojis;
+
+async function searchGiphyGifs(query) {
+  if (!query.trim()) {
+    gifStatus.textContent = 'Search GIPHY for a GIF.';
+    gifResults.innerHTML = '';
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  if (giphyUsage.date !== today) giphyUsage = { date: today, count: 0, lastAt: 0 };
+  const now = Date.now();
+  if (giphyUsage.count >= GIPHY_MAX_SEARCHES_PER_DAY) {
+    gifStatus.textContent = 'Daily GIF search limit reached. Try again tomorrow.';
+    return;
+  }
+  if (now - giphyUsage.lastAt < GIPHY_MIN_SEARCH_INTERVAL_MS) return;
+  giphyUsage.count += 1;
+  giphyUsage.lastAt = now;
+  saveGiphyUsage();
+  if (gifSearchController) gifSearchController.abort();
+  gifSearchController = new AbortController();
+  gifStatus.textContent = 'Searching GIPHY…';
+  try {
+    const response = await fetch(GIPHY_PROXY_URL + '?q=' + encodeURIComponent(query.trim()), { signal: gifSearchController.signal });
+    if (!response.ok) throw new Error('GIPHY search failed (' + response.status + ')');
+    const data = await response.json();
+    gifResults.innerHTML = '';
+    const results = (data.data || []).map(result => ({
+      url: result.images?.fixed_width_small?.url || result.images?.downsized_medium?.url || result.images?.original?.url,
+      title: result.title || 'GIPHY GIF'
+    })).filter(result => result.url);
+    gifStatus.textContent = results.length ? 'Click a GIF to stage it.' : 'No GIFs found.';
+    results.forEach(result => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'gif-result';
+      button.title = result.title;
+      button.innerHTML = `<img src="${escapeHtml(result.url)}" alt="${escapeHtml(result.title)}" loading="lazy">`;
+      button.onclick = () => stageGif(result.url, result.title);
+      gifResults.appendChild(button);
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    gifStatus.textContent = error.message || 'Could not search GIPHY.';
+  }
+}
+
+gifSearch.onkeydown = event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    searchGiphyGifs(gifSearch.value);
+  }
+};
+
+document.addEventListener('click', event => {
+  if (!emojiPicker.contains(event.target) && event.target !== emojiButton) closeEmojiPicker();
+});
+
+document.getElementById('custom-emoji-upload').onclick = () => document.getElementById('custom-emoji-file').click();
+document.getElementById('custom-emoji-file').onchange = async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file || !db) return;
+  const name = (window.prompt('Name this custom emoji (letters, numbers, _ or -):', file.name.replace(/\.[^.]+$/, '').toLowerCase()) || '').trim().toLowerCase();
+  if (!/^[a-z0-9_-]{2,24}$/.test(name)) return;
+  if (customEmojis.some(emoji => emoji.name === name)) {
+    showUploadStatus('That custom emoji name is already taken.');
+    return;
+  }
+  const uploadButton = document.getElementById('custom-emoji-upload');
+  uploadButton.disabled = true;
+  try {
+    showUploadStatus('Preparing custom emoji…');
+    const compressed = await compressMediaFile(file);
+    if (compressed.size > 5 * 1024 * 1024) throw new Error('Custom emojis must be under 5MB.');
+    showUploadStatus('Uploading custom emoji…');
+    const result = await uploadFile(compressed);
+    await db.collection('hangout_custom_emojis').add({
+      name,
+      url: result.url,
+      type: result.type,
+      creator: nickname,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    hideUploadStatus();
+  } catch (error) {
+    showUploadStatus('Custom emoji upload failed: ' + (error.message || 'unknown error'));
+  } finally {
+    uploadButton.disabled = false;
+  }
+};
+
+function renderCustomStickers() {
+  stickerResults.innerHTML = '';
+  customStickers.forEach(sticker => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'gif-result';
+    button.title = sticker.name;
+    button.innerHTML = `<img src="${escapeHtml(sticker.url)}" alt="${escapeHtml(sticker.name)}" loading="lazy">`;
+    button.onclick = () => stageSticker(sticker.url, sticker.name);
+    stickerResults.appendChild(button);
+  });
+  stickerStatus.textContent = customStickers.length ? 'Click a sticker to stage it.' : 'Upload a custom sticker to share it.';
+}
+
+document.getElementById('custom-sticker-upload').onclick = () => document.getElementById('custom-sticker-file').click();
+document.getElementById('custom-sticker-file').onchange = async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file || !db) return;
+  const name = (window.prompt('Name this custom sticker:', file.name.replace(/\.[^.]+$/, '').toLowerCase()) || '').trim().toLowerCase();
+  if (!/^[a-z0-9_-]{2,24}$/.test(name)) return;
+  if (customStickers.some(sticker => sticker.name === name)) {
+    showUploadStatus('That custom sticker name is already taken.');
+    return;
+  }
+  const uploadButton = document.getElementById('custom-sticker-upload');
+  uploadButton.disabled = true;
+  try {
+    showUploadStatus('Preparing custom sticker…');
+    const compressed = await compressMediaFile(file);
+    if (compressed.size > 5 * 1024 * 1024) throw new Error('Custom stickers must be under 5MB.');
+    showUploadStatus('Uploading custom sticker…');
+    const result = await uploadFile(compressed);
+    await db.collection('hangout_custom_stickers').add({
+      name,
+      url: result.url,
+      type: result.type,
+      creator: nickname,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    hideUploadStatus();
+  } catch (error) {
+    showUploadStatus('Custom sticker upload failed: ' + (error.message || 'unknown error'));
+  } finally {
+    uploadButton.disabled = false;
+  }
+};
+
+function startCustomEmojiListener() {
+  if (!db || customEmojiUnsub) return;
+  customEmojiUnsub = db.collection('hangout_custom_emojis')
+    .orderBy('createdAt', 'desc').limit(100)
+    .onSnapshot(snapshot => {
+      customEmojis = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(emoji => emoji.name && emoji.url);
+      renderCustomEmojis();
+    }, () => { customEmojis = []; renderCustomEmojis(); });
+}
+
+function stopCustomEmojiListener() {
+  if (customEmojiUnsub) customEmojiUnsub();
+  customEmojiUnsub = null;
+  customEmojis = [];
+}
+
+function startCustomStickerListener() {
+  if (!db || customStickerUnsub) return;
+  customStickerUnsub = db.collection('hangout_custom_stickers')
+    .orderBy('createdAt', 'desc').limit(100)
+    .onSnapshot(snapshot => {
+      customStickers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(sticker => sticker.name && sticker.url);
+      renderCustomStickers();
+    }, () => { customStickers = []; renderCustomStickers(); });
+}
+
+function stopCustomStickerListener() {
+  if (customStickerUnsub) customStickerUnsub();
+  customStickerUnsub = null;
+  customStickers = [];
+}
 
 // ---------- File uploads (Cloudflare Worker + R2) ----------
 function showUploadStatus(msg) {
@@ -744,9 +1186,96 @@ document.addEventListener('click', e => {
   }
 });
 
-document.getElementById('file-input').addEventListener('change', async e => {
-  const file = e.target.files[0];
-  e.target.value = '';
+// ---------- Staged attachment (Discord-style: stays local until Send) ----------
+function stageAttachment(file) {
+  clearPendingGif();
+  clearPendingSticker();
+  clearPendingAttachment();
+  const isImage = file.type.startsWith('image/');
+  pendingAttachment = {
+    file,
+    previewUrl: isImage ? URL.createObjectURL(file) : null,
+    isImage
+  };
+  renderPendingAttachment();
+  document.getElementById('msg-input').focus();
+}
+
+function stageGif(url, title) {
+  clearPendingAttachment();
+  clearPendingSticker();
+  pendingGif = { url, title: title || 'GIPHY GIF' };
+  renderPendingAttachment();
+  closeEmojiPicker();
+  document.getElementById('msg-input').focus();
+}
+
+function stageSticker(url, title) {
+  clearPendingAttachment();
+  clearPendingGif();
+  clearPendingSticker();
+  pendingSticker = { url, title: title || 'Custom sticker' };
+  renderPendingAttachment();
+  closeEmojiPicker();
+  document.getElementById('msg-input').focus();
+}
+
+function clearPendingGif() {
+  pendingGif = null;
+  renderPendingAttachment();
+}
+
+function clearPendingSticker() {
+  pendingSticker = null;
+  renderPendingAttachment();
+}
+
+function clearPendingAttachment() {
+  if (pendingAttachment && pendingAttachment.previewUrl) URL.revokeObjectURL(pendingAttachment.previewUrl);
+  pendingAttachment = null;
+  renderPendingAttachment();
+}
+
+function renderPendingAttachment() {
+  const wrap = document.getElementById('pending-attachment');
+  if (!pendingAttachment && !pendingGif && !pendingSticker) {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  if (pendingGif) {
+    wrap.innerHTML = `
+      <img src="${escapeHtml(pendingGif.url)}" alt="" class="pending-attachment-thumb">
+      <span class="pending-attachment-name">${escapeHtml(pendingGif.title)} <small>(GIPHY)</small></span>
+      <button type="button" id="pending-attachment-remove" aria-label="Remove GIF">✕</button>
+    `;
+    wrap.style.display = 'flex';
+    document.getElementById('pending-attachment-remove').onclick = clearPendingGif;
+    return;
+  }
+  if (pendingSticker) {
+    wrap.innerHTML = `
+      <img src="${escapeHtml(pendingSticker.url)}" alt="" class="pending-attachment-thumb">
+      <span class="pending-attachment-name">${escapeHtml(pendingSticker.title)} <small>(sticker)</small></span>
+      <button type="button" id="pending-attachment-remove" aria-label="Remove sticker">✕</button>
+    `;
+    wrap.style.display = 'flex';
+    document.getElementById('pending-attachment-remove').onclick = clearPendingSticker;
+    return;
+  }
+  const { file, previewUrl, isImage } = pendingAttachment;
+  wrap.innerHTML = `
+    ${isImage
+      ? `<img src="${previewUrl}" alt="" class="pending-attachment-thumb">`
+      : `<span class="pending-attachment-icon">📎</span>`}
+    <span class="pending-attachment-name">${escapeHtml(file.name)}</span>
+    <button type="button" id="pending-attachment-remove" aria-label="Remove attachment">✕</button>
+  `;
+  wrap.style.display = 'flex';
+  document.getElementById('pending-attachment-remove').onclick = clearPendingAttachment;
+}
+
+async function handleIncomingFile(file) {
   if (!file || !db) return;
   if (!UPLOAD_WORKER_URL || UPLOAD_WORKER_URL === 'PASTE_WORKER_URL') {
     showUploadStatus("File uploads aren't configured yet — add your Worker URL to app.js.");
@@ -757,37 +1286,49 @@ document.getElementById('file-input').addEventListener('change', async e => {
     return;
   }
   document.getElementById('attach-btn').disabled = true;
-  showUploadStatus('Compressing ' + file.name + '…');
+  showUploadStatus('Preparing ' + file.name + '…');
   try {
     const compressedFile = await compressMediaFile(file);
     if (compressedFile.size > MAX_FILE_BYTES) {
       showUploadStatus('The compressed file is still too big — 50MB max for now.');
       return;
     }
-    showUploadStatus('Uploading ' + compressedFile.name + '…');
-    const result = await uploadFile(compressedFile);
-    await db.collection('hangout_messages').add({
-      channel: currentChannel,
-      author: nickname,
-      text: '',
-      color: myProfile.color || null,
-      avatarUrl: myProfile.avatarUrl || null,
-      fileUrl: result.url,
-      fileName: result.name,
-      fileType: result.type,
-      ts: firebase.firestore.FieldValue.serverTimestamp()
-    });
     hideUploadStatus();
+    stageAttachment(compressedFile);
   } catch (err) {
-    showUploadStatus('Upload failed: ' + (err.message || 'unknown error'));
+    showUploadStatus('Could not process that file: ' + (err.message || 'unknown error'));
   } finally {
     document.getElementById('attach-btn').disabled = false;
   }
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  handleIncomingFile(file);
+});
+
+// Paste an image straight into the message box (screenshot, copied photo, etc.)
+// and it stages exactly like a picked file — caption it and hit Send/Enter.
+messageInput.addEventListener('paste', e => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  const imageItem = [...items].find(item => item.kind === 'file' && item.type.startsWith('image/'));
+  if (!imageItem) return; // no image on the clipboard — let normal text paste happen
+  e.preventDefault();
+  const blob = imageItem.getAsFile();
+  if (!blob) return;
+  const ext = (imageItem.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+  const file = new File([blob], `pasted-image-${Date.now()}.${ext}`, { type: imageItem.type });
+  handleIncomingFile(file);
 });
 
 messageInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') sendMessage();
-  if (e.key === 'Escape') document.getElementById('mention-menu').classList.remove('open');
+  if (e.key === 'Escape') {
+    document.getElementById('mention-menu').classList.remove('open');
+    document.getElementById('emoji-autocomplete').classList.remove('open');
+  }
 });
 
 function renderMentionMenu() {
@@ -828,10 +1369,57 @@ function renderMentionMenu() {
   });
 }
 
-messageInput.addEventListener('input', renderMentionMenu);
+function renderEmojiAutocomplete() {
+  const menu = document.getElementById('emoji-autocomplete');
+  const cursor = messageInput.selectionStart ?? messageInput.value.length;
+  const before = messageInput.value.slice(0, cursor);
+  const match = before.match(/(?:^|\s)(::|:)([a-z0-9_+-]*)$/i);
+  if (!match) {
+    menu.classList.remove('open');
+    return;
+  }
+  const delimiter = match[1];
+  const query = match[2].toLowerCase();
+  const suggestions = Object.entries(SHORTCODE_EMOJIS)
+    .map(([name, value]) => ({ name, value }))
+    .concat(customEmojis.map(emoji => ({ name: emoji.name, value: `:${emoji.name}:`, url: emoji.url, custom: true })))
+    .filter((item, index, items) => items.findIndex(candidate => candidate.name === item.name) === index)
+    .filter(item => !query || item.name.includes(query))
+    .slice(0, 12);
+  menu.innerHTML = suggestions.length ? suggestions.map(item => `
+    <button type="button" class="emoji-autocomplete-option" role="option" data-emoji-name="${escapeHtml(item.name)}">
+      ${item.custom ? `<img src="${escapeHtml(item.url)}" alt="">` : `<span>${item.value}</span>`}
+      <span>:${escapeHtml(item.name)}:</span>
+    </button>`).join('') : '<div class="emoji-autocomplete-empty">No matching emoji</div>';
+  menu.classList.add('open');
+  menu.querySelectorAll('[data-emoji-name]').forEach(button => {
+    button.onmousedown = event => {
+      event.preventDefault();
+      const name = button.dataset.emojiName;
+      const item = suggestions.find(candidate => candidate.name === name);
+      const value = item.custom ? `:${name}:` : item.value;
+      const tokenStart = before.lastIndexOf(delimiter + query);
+      const after = messageInput.value.slice(cursor);
+      messageInput.value = messageInput.value.slice(0, tokenStart) + value + after;
+      const nextCursor = tokenStart + value.length;
+      messageInput.focus();
+      messageInput.setSelectionRange(nextCursor, nextCursor);
+      addRecent(value);
+      menu.classList.remove('open');
+    };
+  });
+}
+
+messageInput.addEventListener('input', () => {
+  renderMentionMenu();
+  renderEmojiAutocomplete();
+});
 
 document.addEventListener('click', e => {
-  if (!document.getElementById('input-row').contains(e.target)) document.getElementById('mention-menu').classList.remove('open');
+  if (!document.getElementById('input-row').contains(e.target)) {
+    document.getElementById('mention-menu').classList.remove('open');
+    document.getElementById('emoji-autocomplete').classList.remove('open');
+  }
 });
 
 function peerRow(p, offline) {
@@ -929,7 +1517,10 @@ function enableChat() {
   chatActive = true;
   document.getElementById('msg-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
+  document.getElementById('emoji-btn').disabled = false;
   document.getElementById('attach-btn').disabled = false;
+  startCustomEmojiListener();
+  startCustomStickerListener();
   subscribeChannel(currentChannel);
 }
 
@@ -939,9 +1530,15 @@ function disableChat() {
   visibilityPauseTimer = null;
   document.getElementById('msg-input').disabled = true;
   document.getElementById('send-btn').disabled = true;
+  document.getElementById('emoji-btn').disabled = true;
   document.getElementById('attach-btn').disabled = true;
+  closeEmojiPicker();
+  clearPendingAttachment();
+  clearPendingGif();
   if (unsubMessages) unsubMessages();
   unsubMessages = null;
+  stopCustomEmojiListener();
+  stopCustomStickerListener();
   stopPresence();
 }
 
